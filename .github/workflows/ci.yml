@@ -1,12 +1,9 @@
 name: Z-Graphics CI
 on:
   push:
-    paths:
-      - 'dependencies/z-graphics/**'
-      - '.github/workflows/z-graphics-ci.yml'
+    branches: [ master, main ]
   pull_request:
-    paths:
-      - 'dependencies/z-graphics/**'
+    branches: [ master, main ]
   workflow_dispatch:
 
 jobs:
@@ -24,4 +21,4 @@ jobs:
         with:
           version: 0.16.0
       - name: Build Library
-        run: cd dependencies/z-graphics && zig build
+        run: zig build
