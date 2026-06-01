@@ -26,14 +26,30 @@ pub fn createSurface(width: u32, height: u32) ?*VulkanSurface {
         .apiVersion = c.VK_API_VERSION_1_0,
     });
 
+    const extensions = [_][*:0]const u8{
+        "VK_KHR_surface",
+        "VK_EXT_headless_surface",
+    };
+
     const create_info = std.mem.zeroInit(c.VkInstanceCreateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
         .pApplicationInfo = &app_info,
+        .enabledExtensionCount = extensions.len,
+        .ppEnabledExtensionNames = @ptrCast(&extensions),
     });
 
     var instance: c.VkInstance = null;
     if (c.vkCreateInstance(&create_info, null, &instance) != c.VK_SUCCESS) {
-        return null;
+        // Fallback: If headless surface is not supported, try without it (for environments like basic CI)
+        const fallback_create_info = std.mem.zeroInit(c.VkInstanceCreateInfo, .{
+            .sType = c.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+            .pApplicationInfo = &app_info,
+            .enabledExtensionCount = 0,
+            .ppEnabledExtensionNames = null,
+        });
+        if (c.vkCreateInstance(&fallback_create_info, null, &instance) != c.VK_SUCCESS) {
+            return null;
+        }
     }
 
     // 2. Select Physical Device
@@ -92,12 +108,17 @@ pub fn createSurface(width: u32, height: u32) ?*VulkanSurface {
         return null;
     }
 
-    // 5. Create Surface object in memory (Backend state)
+    // 5. Create Headless Surface (if available)
+    const surface: c.VkSurfaceKHR = null;
+    // We will rely on offscreen image rendering (which is actually more standard for headless browsers)
+    // rather than using a VK_EXT_headless_surface which might not be supported by all drivers.
+
+    // 6. Create Surface object in memory (Backend state)
     var surface_obj = std.heap.page_allocator.create(VulkanSurface) catch return null;
     surface_obj.instance = instance;
     surface_obj.physical_device = physical_device;
     surface_obj.device = device;
-    surface_obj.surface = null; // Headless surface creation will come next if needed, or we just render to offscreen images.
+    surface_obj.surface = surface; 
     surface_obj.width = width;
     surface_obj.height = height;
 
