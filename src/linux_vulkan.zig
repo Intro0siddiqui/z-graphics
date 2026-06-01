@@ -13,6 +13,7 @@ pub const VulkanSurface = struct {
     image: c.VkImage,
     image_memory: c.VkDeviceMemory,
     image_view: c.VkImageView,
+    fence: c.VkFence,
     width: u32,
     height: u32,
 };
@@ -220,7 +221,23 @@ pub fn createSurface(width: u32, height: u32) ?*VulkanSurface {
         return null;
     }
 
-    // 10. Create Surface object in memory (Backend state)
+    // 10. Create Fence for Synchronization
+    const fence_info = std.mem.zeroInit(c.VkFenceCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+        .flags = c.VK_FENCE_CREATE_SIGNALED_BIT, // Start signaled so first wait doesn't block
+    });
+
+    var fence: c.VkFence = null;
+    if (c.vkCreateFence(device, &fence_info, null, &fence) != c.VK_SUCCESS) {
+        c.vkDestroyImageView(device, image_view, null);
+        c.vkFreeMemory(device, image_memory, null);
+        c.vkDestroyImage(device, image, null);
+        c.vkDestroyDevice(device, null);
+        c.vkDestroyInstance(instance, null);
+        return null;
+    }
+
+    // 11. Create Surface object in memory (Backend state)
     var surface_obj = std.heap.page_allocator.create(VulkanSurface) catch return null;
     surface_obj.instance = instance;
     surface_obj.physical_device = physical_device;
@@ -230,6 +247,7 @@ pub fn createSurface(width: u32, height: u32) ?*VulkanSurface {
     surface_obj.image = image;
     surface_obj.image_memory = image_memory;
     surface_obj.image_view = image_view;
+    surface_obj.fence = fence;
     surface_obj.width = width;
     surface_obj.height = height;
 
@@ -240,6 +258,7 @@ pub fn destroySurface(surface: *VulkanSurface) void {
     if (builtin.os.tag != .linux) return;
     
     if (surface.device != null) {
+        if (surface.fence != null) c.vkDestroyFence(surface.device, surface.fence, null);
         if (surface.image_view != null) c.vkDestroyImageView(surface.device, surface.image_view, null);
         if (surface.image != null) c.vkDestroyImage(surface.device, surface.image, null);
         if (surface.image_memory != null) c.vkFreeMemory(surface.device, surface.image_memory, null);
@@ -257,8 +276,8 @@ pub fn swapBuffers(surface: *VulkanSurface) void {
     
     // In a headless environment, "swapping" usually means waiting for the rendering to finish
     // so the buffer can be safely read back or exported to zero-copy memory.
-    if (surface.graphics_queue != null) {
-        _ = c.vkQueueWaitIdle(surface.graphics_queue);
+    if (surface.fence != null) {
+        _ = c.vkWaitForFences(surface.device, 1, &surface.fence, c.VK_TRUE, std.math.maxInt(u64));
     }
 }
 
@@ -414,12 +433,18 @@ pub fn submitCommandBuffer(surface: *VulkanSurface, cmd: *VulkanCommandBuffer) v
         .pCommandBuffers = &cmd.cmd,
     });
 
-    _ = c.vkQueueSubmit(surface.graphics_queue, 1, &submit_info, null);
-    
-    // We wait for it to finish immediately for simplicity in this iteration
-    _ = c.vkQueueWaitIdle(surface.graphics_queue);
+    _ = c.vkResetFences(surface.device, 1, &surface.fence);
+    _ = c.vkQueueSubmit(surface.graphics_queue, 1, &submit_info, surface.fence);
 
-    // Cleanup
+    // We do NOT wait here anymore. `swapBuffers` will wait on the fence.
+    // This allows the CPU to continue working while the GPU processes the command buffer.
+
+    // Cleanup (in a real engine, we'd recycle these, but for this abstraction we free them after submission)
+    // Note: We can't free the pool until the GPU is done, so for this simple API we block here just to safely free.
+    // To truly be async, the `ZawraGraphicsCommandBuffer` would need to own its lifecycle.
+    // For the sake of the FFI contract requested, we will wait here JUST for safety during cleanup.
+    _ = c.vkWaitForFences(surface.device, 1, &surface.fence, c.VK_TRUE, std.math.maxInt(u64));
+    
     c.vkDestroyCommandPool(surface.device, cmd.pool, null);
     std.heap.page_allocator.destroy(cmd);
 }
