@@ -36,6 +36,9 @@ pub fn build(b: *std.Build) void {
         smoke_test.root_module.linkFramework("Metal", .{});
         smoke_test.root_module.linkFramework("Foundation", .{});
         smoke_test.root_module.linkFramework("QuartzCore", .{});
+    } else if (target.result.os.tag == .windows) {
+        smoke_test.root_module.linkSystemLibrary("d3d12", .{});
+        smoke_test.root_module.linkSystemLibrary("dxgi", .{});
     }
 
     smoke_test.root_module.addImport("lib", lib_mod);

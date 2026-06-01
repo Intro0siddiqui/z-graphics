@@ -38,3 +38,9 @@ pub fn destroySurface(surface: *MetalSurface) void {
     
     std.heap.page_allocator.destroy(surface);
 }
+
+pub fn swapBuffers(surface: *MetalSurface) void {
+    if (builtin.os.tag != .macos) return;
+    _ = surface;
+    // Command Buffer submission and presentation would occur here.
+}

@@ -11,5 +11,5 @@
         - [x] Scaffolding/FFI Stubs
     - [x] macOS (Metal) implementation
         - [x] Scaffolding/FFI Stubs
-- [ ] Implement `z_graphics_swap_buffers`
+- [ ] Implement `z_graphics_swap_buffers` (IN PROGRESS)
 - [ ] Integrate with WebKit compositor

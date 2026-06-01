@@ -8,6 +8,7 @@ pub const VulkanSurface = struct {
     instance: c.VkInstance,
     physical_device: c.VkPhysicalDevice,
     device: c.VkDevice,
+    graphics_queue: c.VkQueue,
     surface: c.VkSurfaceKHR,
     width: u32,
     height: u32,
@@ -112,16 +113,21 @@ pub fn createSurface(width: u32, height: u32) ?*VulkanSurface {
         return null;
     }
 
-    // 5. Create Headless Surface (if available)
+    // 5. Retrieve Graphics Queue
+    var graphics_queue: c.VkQueue = null;
+    c.vkGetDeviceQueue(device, graphics_family.?, 0, &graphics_queue);
+
+    // 6. Create Headless Surface (if available)
     const surface: c.VkSurfaceKHR = null;
     // We will rely on offscreen image rendering (which is actually more standard for headless browsers)
     // rather than using a VK_EXT_headless_surface which might not be supported by all drivers.
 
-    // 6. Create Surface object in memory (Backend state)
+    // 7. Create Surface object in memory (Backend state)
     var surface_obj = std.heap.page_allocator.create(VulkanSurface) catch return null;
     surface_obj.instance = instance;
     surface_obj.physical_device = physical_device;
     surface_obj.device = device;
+    surface_obj.graphics_queue = graphics_queue;
     surface_obj.surface = surface; 
     surface_obj.width = width;
     surface_obj.height = height;
@@ -139,4 +145,14 @@ pub fn destroySurface(surface: *VulkanSurface) void {
         c.vkDestroyInstance(surface.instance, null);
     }
     std.heap.page_allocator.destroy(surface);
+}
+
+pub fn swapBuffers(surface: *VulkanSurface) void {
+    if (builtin.os.tag != .linux) return;
+    
+    // In a headless environment, "swapping" usually means waiting for the rendering to finish
+    // so the buffer can be safely read back or exported to zero-copy memory.
+    if (surface.graphics_queue != null) {
+        _ = c.vkQueueWaitIdle(surface.graphics_queue);
+    }
 }

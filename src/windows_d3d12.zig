@@ -64,3 +64,9 @@ pub fn destroySurface(surface: *D3D12Surface) void {
     
     std.heap.page_allocator.destroy(surface);
 }
+
+pub fn swapBuffers(surface: *D3D12Surface) void {
+    if (builtin.os.tag != .windows) return;
+    _ = surface;
+    // Command Queue execution and IDXGISwapChain::Present would occur here.
+}

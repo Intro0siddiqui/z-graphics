@@ -52,6 +52,18 @@ pub export fn ZawraGraphics_DestroySurface(handle: ZawraGraphicsHandle) void {
     }
 }
 
+/// Swaps the backbuffer to the frontbuffer, or flushes the offscreen render target
+/// indicating the frame is complete.
+pub export fn ZawraGraphics_SwapBuffers(handle: ZawraGraphicsHandle) void {
+    if (builtin.os.tag == .linux) {
+        linux_vulkan.swapBuffers(@ptrCast(@alignCast(handle)));
+    } else if (builtin.os.tag == .macos) {
+        macos_metal.swapBuffers(@ptrCast(@alignCast(handle)));
+    } else if (builtin.os.tag == .windows) {
+        windows_d3d12.swapBuffers(@ptrCast(@alignCast(handle)));
+    }
+}
+
 /// Headfull window creation (optional/debug).
 pub export fn ZawraGraphics_CreateWindow(width: u32, height: u32) ?ZawraGraphicsHandle {
     _ = width;
