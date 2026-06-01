@@ -115,18 +115,34 @@ pub fn createSurface(width: u32, height: u32) ?*VulkanSurface {
 
     const device_features = std.mem.zeroInit(c.VkPhysicalDeviceFeatures, .{});
 
+    const device_extensions = [_][*:0]const u8{
+        "VK_KHR_external_memory",
+        "VK_KHR_external_memory_fd",
+    };
+
     const device_create_info = std.mem.zeroInit(c.VkDeviceCreateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
         .pQueueCreateInfos = &queue_create_info,
         .queueCreateInfoCount = 1,
         .pEnabledFeatures = &device_features,
-        .enabledExtensionCount = 0,
-        .ppEnabledExtensionNames = null,
+        .enabledExtensionCount = device_extensions.len,
+        .ppEnabledExtensionNames = @ptrCast(&device_extensions),
     });
 
     var device: c.VkDevice = null;
     if (c.vkCreateDevice(physical_device, &device_create_info, null, &device) != c.VK_SUCCESS) {
-        return null;
+        // Fallback without external memory for strict environments/CI
+        const fallback_create_info = std.mem.zeroInit(c.VkDeviceCreateInfo, .{
+            .sType = c.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+            .pQueueCreateInfos = &queue_create_info,
+            .queueCreateInfoCount = 1,
+            .pEnabledFeatures = &device_features,
+            .enabledExtensionCount = 0,
+            .ppEnabledExtensionNames = null,
+        });
+        if (c.vkCreateDevice(physical_device, &fallback_create_info, null, &device) != c.VK_SUCCESS) {
+            return null;
+        }
     }
 
     // 5. Retrieve Graphics Queue
@@ -139,8 +155,14 @@ pub fn createSurface(width: u32, height: u32) ?*VulkanSurface {
     // rather than using a VK_EXT_headless_surface which might not be supported by all drivers.
 
     // 7. Create Offscreen Image Buffer (Swapchain Substitute)
+    var external_image_info = std.mem.zeroInit(c.VkExternalMemoryImageCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
+        .handleTypes = c.VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
+    });
+
     const image_info = std.mem.zeroInit(c.VkImageCreateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .pNext = &external_image_info,
         .imageType = c.VK_IMAGE_TYPE_2D,
         .extent = .{ .width = width, .height = height, .depth = 1 },
         .mipLevels = 1,
@@ -175,8 +197,14 @@ pub fn createSurface(width: u32, height: u32) ?*VulkanSurface {
         return null;
     };
 
+    var export_alloc_info = std.mem.zeroInit(c.VkExportMemoryAllocateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO,
+        .handleTypes = c.VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
+    });
+
     const alloc_info = std.mem.zeroInit(c.VkMemoryAllocateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .pNext = &export_alloc_info,
         .allocationSize = mem_requirements.size,
         .memoryTypeIndex = mem_type_index,
     });
@@ -279,6 +307,26 @@ pub fn swapBuffers(surface: *VulkanSurface) void {
     if (surface.fence != null) {
         _ = c.vkWaitForFences(surface.device, 1, &surface.fence, c.VK_TRUE, std.math.maxInt(u64));
     }
+}
+
+pub fn exportSurfaceFD(surface: *VulkanSurface) i32 {
+    if (builtin.os.tag != .linux) return -1;
+
+    const pfnGetMemoryFdKHR = @as(c.PFN_vkGetMemoryFdKHR, @ptrCast(c.vkGetDeviceProcAddr(surface.device, "vkGetMemoryFdKHR")));
+    if (pfnGetMemoryFdKHR == null) return -1;
+
+    const get_fd_info = std.mem.zeroInit(c.VkMemoryGetFdInfoKHR, .{
+        .sType = c.VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR,
+        .memory = surface.image_memory,
+        .handleType = c.VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
+    });
+
+    var fd: i32 = -1;
+    if (pfnGetMemoryFdKHR.?(surface.device, &get_fd_info, &fd) != c.VK_SUCCESS) {
+        return -1;
+    }
+
+    return fd;
 }
 
 // ---------------------------------------------------------

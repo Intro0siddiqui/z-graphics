@@ -87,6 +87,14 @@ pub fn swapBuffers(surface: *D3D12Surface) void {
     // ID3D12Fence::SetEventOnCompletion(...) // For headless sync
 }
 
+pub fn exportSurfaceFD(surface: *D3D12Surface) i32 {
+    if (builtin.os.tag != .windows) return -1;
+    _ = surface;
+    // For Windows, we'd export a HANDLE (which is void*).
+    // The i32 return type might need to be cast or we return an index.
+    return -1; // Stub
+}
+
 // ---------------------------------------------------------
 // RESOURCE MANAGEMENT
 // ---------------------------------------------------------

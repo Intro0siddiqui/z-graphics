@@ -77,6 +77,20 @@ pub export fn ZawraGraphics_SwapBuffers(handle: ZawraGraphicsHandle) void {
     }
 }
 
+/// Exports the rendered surface memory as a file descriptor (Linux/DMA-BUF),
+/// IOSurface handle (macOS), or shared handle (Windows).
+/// Returns -1 or 0 on failure/unsupported.
+pub export fn ZawraGraphics_ExportSurfaceFD(handle: ZawraGraphicsHandle) i32 {
+    if (builtin.os.tag == .linux) {
+        return linux_vulkan.exportSurfaceFD(@ptrCast(@alignCast(handle)));
+    } else if (builtin.os.tag == .macos) {
+        return macos_metal.exportSurfaceFD(@ptrCast(@alignCast(handle)));
+    } else if (builtin.os.tag == .windows) {
+        return windows_d3d12.exportSurfaceFD(@ptrCast(@alignCast(handle)));
+    }
+    return -1;
+}
+
 // ---------------------------------------------------------
 // RESOURCE MANAGEMENT (Feature 2)
 // ---------------------------------------------------------
