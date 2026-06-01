@@ -31,12 +31,16 @@ pub fn createSurface(width: u32, height: u32) ?*VulkanSurface {
         "VK_EXT_headless_surface",
     };
 
-    const create_info = std.mem.zeroInit(c.VkInstanceCreateInfo, .{
+    const create_info = c.VkInstanceCreateInfo{
         .sType = c.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+        .pNext = null,
+        .flags = 0,
         .pApplicationInfo = &app_info,
+        .enabledLayerCount = 0,
+        .ppEnabledLayerNames = null,
         .enabledExtensionCount = extensions.len,
         .ppEnabledExtensionNames = @ptrCast(&extensions),
-    });
+    };
 
     var instance: c.VkInstance = null;
     if (c.vkCreateInstance(&create_info, null, &instance) != c.VK_SUCCESS) {
