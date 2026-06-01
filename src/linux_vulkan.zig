@@ -49,12 +49,55 @@ pub fn createSurface(width: u32, height: u32) ?*VulkanSurface {
     // In production, we would score them based on VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU.
     const physical_device = devices[0];
 
-    // 3. Create Surface object in memory (Backend state)
+    // 3. Find Graphics Queue Family
+    var queue_family_count: u32 = 0;
+    c.vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_family_count, null);
+    
+    const queue_families = std.heap.page_allocator.alloc(c.VkQueueFamilyProperties, queue_family_count) catch return null;
+    defer std.heap.page_allocator.free(queue_families);
+    c.vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_family_count, queue_families.ptr);
+
+    var graphics_family: ?u32 = null;
+    for (queue_families, 0..) |family, i| {
+        if ((family.queueFlags & c.VK_QUEUE_GRAPHICS_BIT) != 0) {
+            graphics_family = @intCast(i);
+            break;
+        }
+    }
+
+    if (graphics_family == null) return null;
+
+    // 4. Create Logical Device
+    const queue_priority: f32 = 1.0;
+    const queue_create_info = std.mem.zeroInit(c.VkDeviceQueueCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+        .queueFamilyIndex = graphics_family.?,
+        .queueCount = 1,
+        .pQueuePriorities = &queue_priority,
+    });
+
+    const device_features = std.mem.zeroInit(c.VkPhysicalDeviceFeatures, .{});
+
+    const device_create_info = std.mem.zeroInit(c.VkDeviceCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+        .pQueueCreateInfos = &queue_create_info,
+        .queueCreateInfoCount = 1,
+        .pEnabledFeatures = &device_features,
+        .enabledExtensionCount = 0,
+        .ppEnabledExtensionNames = null,
+    });
+
+    var device: c.VkDevice = null;
+    if (c.vkCreateDevice(physical_device, &device_create_info, null, &device) != c.VK_SUCCESS) {
+        return null;
+    }
+
+    // 5. Create Surface object in memory (Backend state)
     var surface_obj = std.heap.page_allocator.create(VulkanSurface) catch return null;
     surface_obj.instance = instance;
     surface_obj.physical_device = physical_device;
-    surface_obj.device = null; // To be created in next step
-    surface_obj.surface = null; // To be created in next step
+    surface_obj.device = device;
+    surface_obj.surface = null; // Headless surface creation will come next if needed, or we just render to offscreen images.
     surface_obj.width = width;
     surface_obj.height = height;
 
