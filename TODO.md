@@ -6,10 +6,10 @@
     - [x] Define platform-agnostic surface struct
     - [x] Linux (Vulkan) implementation
         - [x] Structure definition
-        - [ ] Backend implementation (IN PROGRESS)
+        - [x] Backend implementation (Offscreen buffers complete)
     - [x] Windows (D3D12/Vulkan) implementation
         - [x] Scaffolding/FFI Stubs
     - [x] macOS (Metal) implementation
         - [x] Scaffolding/FFI Stubs
-- [ ] Implement `z_graphics_swap_buffers` (IN PROGRESS)
+- [x] Implement `z_graphics_swap_buffers`
 - [ ] Integrate with WebKit compositor
