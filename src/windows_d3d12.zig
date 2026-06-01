@@ -5,6 +5,8 @@ const builtin = @import("builtin");
 pub const D3D12Surface = struct {
     device: ?*anyopaque,
     command_queue: ?*anyopaque,
+    resource: ?*anyopaque, // ID3D12Resource used as the offscreen render target
+    allocation: ?*anyopaque, // D3D12MA Allocation (if using an allocator) or heap pointer
     width: u32,
     height: u32,
 };
@@ -49,7 +51,18 @@ pub fn createSurface(width: u32, height: u32) ?*D3D12Surface {
     // 2. Allocate the surface state
     var surface_obj = std.heap.page_allocator.create(D3D12Surface) catch return null;
     surface_obj.device = device;
-    surface_obj.command_queue = null; // Next steps: Create ID3D12CommandQueue
+    
+    // Next Steps:
+    // 3. Create ID3D12CommandQueue (device->CreateCommandQueue)
+    surface_obj.command_queue = null; 
+    
+    // 4. Create Offscreen Image Buffer (ID3D12Resource)
+    // Next: Create D3D12_HEAP_PROPERTIES (type = DEFAULT)
+    // Next: Create D3D12_RESOURCE_DESC (format = DXGI_FORMAT_R8G8B8A8_UNORM, flags = ALLOW_RENDER_TARGET)
+    // Next: device->CreateCommittedResource(...)
+    surface_obj.resource = null; 
+    surface_obj.allocation = null;
+    
     surface_obj.width = width;
     surface_obj.height = height;
 
@@ -61,6 +74,7 @@ pub fn destroySurface(surface: *D3D12Surface) void {
     
     // Note: D3D12 uses COM objects which require ->Release()
     // For now, as an FFI stub, we just free our wrapper struct.
+    // Cleanup of surface.resource, surface.command_queue, surface.device would happen here.
     
     std.heap.page_allocator.destroy(surface);
 }
@@ -68,5 +82,7 @@ pub fn destroySurface(surface: *D3D12Surface) void {
 pub fn swapBuffers(surface: *D3D12Surface) void {
     if (builtin.os.tag != .windows) return;
     _ = surface;
-    // Command Queue execution and IDXGISwapChain::Present would occur here.
+    // Command Queue execution would occur here.
+    // ID3D12CommandQueue::ExecuteCommandLists(...)
+    // ID3D12Fence::SetEventOnCompletion(...) // For headless sync
 }
