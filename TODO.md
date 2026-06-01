@@ -1,0 +1,15 @@
+# z-graphics Implementation TODO
+
+- [x] Initialize project structure and CI
+- [x] Functional smoke test for FFI
+- [x] Implement `z_graphics_create_surface`
+    - [x] Define platform-agnostic surface struct
+    - [x] Linux (Vulkan) implementation
+        - [x] Structure definition
+        - [ ] Backend implementation (IN PROGRESS)
+    - [x] Windows (D3D12/Vulkan) implementation
+        - [x] Scaffolding/FFI Stubs
+    - [x] macOS (Metal) implementation
+        - [x] Scaffolding/FFI Stubs
+- [ ] Implement `z_graphics_swap_buffers`
+- [ ] Integrate with WebKit compositor
