@@ -12,4 +12,5 @@
     - [x] macOS (Metal) implementation
         - [x] Scaffolding/FFI Stubs
 - [x] Implement `z_graphics_swap_buffers`
+- [x] Implement Basic Drawing API & Resource Buffers
 - [ ] Integrate with WebKit compositor
