@@ -1,0 +1,27 @@
+name: Z-Graphics CI
+on:
+  push:
+    paths:
+      - 'dependencies/z-graphics/**'
+      - '.github/workflows/z-graphics-ci.yml'
+  pull_request:
+    paths:
+      - 'dependencies/z-graphics/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux Dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libvulkan-dev vulkan-tools pkg-config
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+      - name: Build Library
+        run: cd dependencies/z-graphics && zig build
