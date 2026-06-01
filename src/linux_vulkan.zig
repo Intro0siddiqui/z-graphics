@@ -10,9 +10,24 @@ pub const VulkanSurface = struct {
     device: c.VkDevice,
     graphics_queue: c.VkQueue,
     surface: c.VkSurfaceKHR,
+    image: c.VkImage,
+    image_memory: c.VkDeviceMemory,
+    image_view: c.VkImageView,
     width: u32,
     height: u32,
 };
+
+fn findMemoryType(physical_device: c.VkPhysicalDevice, type_filter: u32, properties: c.VkMemoryPropertyFlags) ?u32 {
+    var mem_properties: c.VkPhysicalDeviceMemoryProperties = undefined;
+    c.vkGetPhysicalDeviceMemoryProperties(physical_device, &mem_properties);
+
+    for (mem_properties.memoryTypes[0..mem_properties.memoryTypeCount], 0..) |mem_type, i| {
+        if ((type_filter & (@as(u32, 1) << @intCast(i))) != 0 and (mem_type.propertyFlags & properties) == properties) {
+            return @intCast(i);
+        }
+    }
+    return null;
+}
 
 pub fn createSurface(width: u32, height: u32) ?*VulkanSurface {
     if (builtin.os.tag != .linux) return null;
@@ -122,13 +137,99 @@ pub fn createSurface(width: u32, height: u32) ?*VulkanSurface {
     // We will rely on offscreen image rendering (which is actually more standard for headless browsers)
     // rather than using a VK_EXT_headless_surface which might not be supported by all drivers.
 
-    // 7. Create Surface object in memory (Backend state)
+    // 7. Create Offscreen Image Buffer (Swapchain Substitute)
+    const image_info = std.mem.zeroInit(c.VkImageCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .imageType = c.VK_IMAGE_TYPE_2D,
+        .extent = .{ .width = width, .height = height, .depth = 1 },
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .format = c.VK_FORMAT_R8G8B8A8_UNORM, // Standard web format
+        .tiling = c.VK_IMAGE_TILING_OPTIMAL,
+        .initialLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
+        .usage = c.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | c.VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+        .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
+        .samples = c.VK_SAMPLE_COUNT_1_BIT,
+    });
+
+    var image: c.VkImage = null;
+    if (c.vkCreateImage(device, &image_info, null, &image) != c.VK_SUCCESS) {
+        c.vkDestroyDevice(device, null);
+        c.vkDestroyInstance(instance, null);
+        return null;
+    }
+
+    // 8. Allocate Memory for Image
+    var mem_requirements: c.VkMemoryRequirements = undefined;
+    c.vkGetImageMemoryRequirements(device, image, &mem_requirements);
+
+    const mem_type_index = findMemoryType(
+        physical_device,
+        mem_requirements.memoryTypeBits,
+        c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+    ) orelse {
+        c.vkDestroyImage(device, image, null);
+        c.vkDestroyDevice(device, null);
+        c.vkDestroyInstance(instance, null);
+        return null;
+    };
+
+    const alloc_info = std.mem.zeroInit(c.VkMemoryAllocateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize = mem_requirements.size,
+        .memoryTypeIndex = mem_type_index,
+    });
+
+    var image_memory: c.VkDeviceMemory = null;
+    if (c.vkAllocateMemory(device, &alloc_info, null, &image_memory) != c.VK_SUCCESS) {
+        c.vkDestroyImage(device, image, null);
+        c.vkDestroyDevice(device, null);
+        c.vkDestroyInstance(instance, null);
+        return null;
+    }
+
+    if (c.vkBindImageMemory(device, image, image_memory, 0) != c.VK_SUCCESS) {
+        c.vkFreeMemory(device, image_memory, null);
+        c.vkDestroyImage(device, image, null);
+        c.vkDestroyDevice(device, null);
+        c.vkDestroyInstance(instance, null);
+        return null;
+    }
+
+    // 9. Create Image View
+    const view_info = std.mem.zeroInit(c.VkImageViewCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        .image = image,
+        .viewType = c.VK_IMAGE_VIEW_TYPE_2D,
+        .format = c.VK_FORMAT_R8G8B8A8_UNORM,
+        .subresourceRange = .{
+            .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel = 0,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = 1,
+        },
+    });
+
+    var image_view: c.VkImageView = null;
+    if (c.vkCreateImageView(device, &view_info, null, &image_view) != c.VK_SUCCESS) {
+        c.vkFreeMemory(device, image_memory, null);
+        c.vkDestroyImage(device, image, null);
+        c.vkDestroyDevice(device, null);
+        c.vkDestroyInstance(instance, null);
+        return null;
+    }
+
+    // 10. Create Surface object in memory (Backend state)
     var surface_obj = std.heap.page_allocator.create(VulkanSurface) catch return null;
     surface_obj.instance = instance;
     surface_obj.physical_device = physical_device;
     surface_obj.device = device;
     surface_obj.graphics_queue = graphics_queue;
-    surface_obj.surface = surface; 
+    surface_obj.surface = surface;
+    surface_obj.image = image;
+    surface_obj.image_memory = image_memory;
+    surface_obj.image_view = image_view;
     surface_obj.width = width;
     surface_obj.height = height;
 
@@ -139,6 +240,10 @@ pub fn destroySurface(surface: *VulkanSurface) void {
     if (builtin.os.tag != .linux) return;
     
     if (surface.device != null) {
+        if (surface.image_view != null) c.vkDestroyImageView(surface.device, surface.image_view, null);
+        if (surface.image != null) c.vkDestroyImage(surface.device, surface.image, null);
+        if (surface.image_memory != null) c.vkFreeMemory(surface.device, surface.image_memory, null);
+        
         c.vkDestroyDevice(surface.device, null);
     }
     if (surface.instance != null) {
