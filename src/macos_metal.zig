@@ -1,19 +1,40 @@
+const std = @import("std");
 const builtin = @import("builtin");
 
-// Placeholder for Metal-specific types
+/// The internal structure representing a Metal graphics surface.
 pub const MetalSurface = struct {
+    device: ?*anyopaque,
+    command_queue: ?*anyopaque,
     width: u32,
     height: u32,
 };
 
+// Extern declarations for C-linkable Metal symbols
+extern fn MTLCreateSystemDefaultDevice() ?*anyopaque;
+
 pub fn createSurface(width: u32, height: u32) ?*MetalSurface {
-    _ = width;
-    _ = height;
     if (builtin.os.tag != .macos) return null;
-    // Metal initialization logic will be implemented here
-    return null;
+
+    // 1. Create the system default Metal device
+    const device = MTLCreateSystemDefaultDevice() orelse return null;
+
+    // 2. Allocate the surface state
+    var surface_obj = std.heap.page_allocator.create(MetalSurface) catch return null;
+    surface_obj.device = device;
+    surface_obj.command_queue = null; // Command queue creation usually requires Obj-C message passing
+    surface_obj.width = width;
+    surface_obj.height = height;
+
+    return surface_obj;
 }
 
 pub fn destroySurface(surface: *MetalSurface) void {
-    _ = surface;
+    if (builtin.os.tag != .macos) return;
+    
+    // Note: Metal uses ARC (Automatic Reference Counting).
+    // In a pure C/Zig context, we would use CFRelease or similar if they were CoreFoundation objects,
+    // but Metal objects usually require [object release] via Obj-C runtime.
+    // For now, we just free the memory of our wrapper.
+    
+    std.heap.page_allocator.destroy(surface);
 }

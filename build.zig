@@ -32,6 +32,10 @@ pub fn build(b: *std.Build) void {
 
     if (target.result.os.tag == .linux) {
         smoke_test.root_module.linkSystemLibrary("vulkan", .{});
+    } else if (target.result.os.tag == .macos) {
+        smoke_test.root_module.linkFramework("Metal", .{});
+        smoke_test.root_module.linkFramework("Foundation", .{});
+        smoke_test.root_module.linkFramework("QuartzCore", .{});
     }
 
     smoke_test.root_module.addImport("lib", lib_mod);
