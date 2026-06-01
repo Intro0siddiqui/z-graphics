@@ -86,3 +86,53 @@ pub fn swapBuffers(surface: *D3D12Surface) void {
     // ID3D12CommandQueue::ExecuteCommandLists(...)
     // ID3D12Fence::SetEventOnCompletion(...) // For headless sync
 }
+
+// ---------------------------------------------------------
+// RESOURCE MANAGEMENT
+// ---------------------------------------------------------
+
+pub const D3D12Buffer = struct {
+    resource: ?*anyopaque, // ID3D12Resource
+    size: usize,
+};
+
+pub fn createBuffer(surface: *D3D12Surface, size: usize, buffer_type: u32) ?*D3D12Buffer {
+    if (builtin.os.tag != .windows) return null;
+    _ = surface;
+    _ = size;
+    _ = buffer_type;
+    return null;
+}
+
+pub fn destroyBuffer(surface: *D3D12Surface, buffer: *D3D12Buffer) void {
+    if (builtin.os.tag != .windows) return;
+    _ = surface;
+    _ = buffer;
+}
+
+// ---------------------------------------------------------
+// COMMAND RECORDING
+// ---------------------------------------------------------
+
+pub const D3D12CommandBuffer = struct {
+    cmd_list: ?*anyopaque, // ID3D12GraphicsCommandList
+    allocator: ?*anyopaque, // ID3D12CommandAllocator
+};
+
+pub fn beginCommandBuffer(surface: *D3D12Surface) ?*D3D12CommandBuffer {
+    if (builtin.os.tag != .windows) return null;
+    _ = surface;
+    return null;
+}
+
+pub fn cmdClearColor(cmd: *D3D12CommandBuffer, r: f32, g: f32, b: f32, a: f32) void {
+    if (builtin.os.tag != .windows) return;
+    _ = cmd;
+    _ = r; _ = g; _ = b; _ = a;
+}
+
+pub fn submitCommandBuffer(surface: *D3D12Surface, cmd: *D3D12CommandBuffer) void {
+    if (builtin.os.tag != .windows) return;
+    _ = surface;
+    _ = cmd;
+}

@@ -21,6 +21,19 @@ else
 /// Opaque pointer to the graphics surface for C/C++ FFI.
 pub const ZawraGraphicsHandle = *anyopaque;
 
+/// Opaque pointer to a generic GPU Buffer (Vertex/Index/Uniform).
+pub const ZawraGraphicsBuffer = *anyopaque;
+
+/// Opaque pointer to a Command Buffer for recording drawing operations.
+pub const ZawraGraphicsCommandBuffer = *anyopaque;
+
+/// Buffer usage types
+pub const BufferType = enum(u32) {
+    Vertex = 1,
+    Index = 2,
+    Uniform = 3,
+};
+
 /// Initializes the global graphics state.
 pub export fn ZawraGraphics_Initialize() bool {
     // Basic global initialization logic can go here.
@@ -61,6 +74,70 @@ pub export fn ZawraGraphics_SwapBuffers(handle: ZawraGraphicsHandle) void {
         macos_metal.swapBuffers(@ptrCast(@alignCast(handle)));
     } else if (builtin.os.tag == .windows) {
         windows_d3d12.swapBuffers(@ptrCast(@alignCast(handle)));
+    }
+}
+
+// ---------------------------------------------------------
+// RESOURCE MANAGEMENT (Feature 2)
+// ---------------------------------------------------------
+
+/// Allocates a generic GPU buffer.
+pub export fn ZawraGraphics_CreateBuffer(handle: ZawraGraphicsHandle, size: usize, buffer_type: BufferType) ?ZawraGraphicsBuffer {
+    if (builtin.os.tag == .linux) {
+        return @ptrCast(linux_vulkan.createBuffer(@ptrCast(@alignCast(handle)), size, @intFromEnum(buffer_type)));
+    } else if (builtin.os.tag == .macos) {
+        return @ptrCast(macos_metal.createBuffer(@ptrCast(@alignCast(handle)), size, @intFromEnum(buffer_type)));
+    } else if (builtin.os.tag == .windows) {
+        return @ptrCast(windows_d3d12.createBuffer(@ptrCast(@alignCast(handle)), size, @intFromEnum(buffer_type)));
+    }
+    return null;
+}
+
+pub export fn ZawraGraphics_DestroyBuffer(handle: ZawraGraphicsHandle, buffer: ZawraGraphicsBuffer) void {
+    if (builtin.os.tag == .linux) {
+        linux_vulkan.destroyBuffer(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(buffer)));
+    } else if (builtin.os.tag == .macos) {
+        macos_metal.destroyBuffer(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(buffer)));
+    } else if (builtin.os.tag == .windows) {
+        windows_d3d12.destroyBuffer(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(buffer)));
+    }
+}
+
+// ---------------------------------------------------------
+// COMMAND RECORDING (Feature 1)
+// ---------------------------------------------------------
+
+/// Begins a new command buffer for recording.
+pub export fn ZawraGraphics_BeginCommandBuffer(handle: ZawraGraphicsHandle) ?ZawraGraphicsCommandBuffer {
+    if (builtin.os.tag == .linux) {
+        return @ptrCast(linux_vulkan.beginCommandBuffer(@ptrCast(@alignCast(handle))));
+    } else if (builtin.os.tag == .macos) {
+        return @ptrCast(macos_metal.beginCommandBuffer(@ptrCast(@alignCast(handle))));
+    } else if (builtin.os.tag == .windows) {
+        return @ptrCast(windows_d3d12.beginCommandBuffer(@ptrCast(@alignCast(handle))));
+    }
+    return null;
+}
+
+/// Clears the current render target to a specific color.
+pub export fn ZawraGraphics_CmdClearColor(cmd: ZawraGraphicsCommandBuffer, r: f32, g: f32, b: f32, a: f32) void {
+    if (builtin.os.tag == .linux) {
+        linux_vulkan.cmdClearColor(@ptrCast(@alignCast(cmd)), r, g, b, a);
+    } else if (builtin.os.tag == .macos) {
+        macos_metal.cmdClearColor(@ptrCast(@alignCast(cmd)), r, g, b, a);
+    } else if (builtin.os.tag == .windows) {
+        windows_d3d12.cmdClearColor(@ptrCast(@alignCast(cmd)), r, g, b, a);
+    }
+}
+
+/// Submits the recorded command buffer to the GPU queue.
+pub export fn ZawraGraphics_SubmitCommandBuffer(handle: ZawraGraphicsHandle, cmd: ZawraGraphicsCommandBuffer) void {
+    if (builtin.os.tag == .linux) {
+        linux_vulkan.submitCommandBuffer(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(cmd)));
+    } else if (builtin.os.tag == .macos) {
+        macos_metal.submitCommandBuffer(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(cmd)));
+    } else if (builtin.os.tag == .windows) {
+        windows_d3d12.submitCommandBuffer(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(cmd)));
     }
 }
 

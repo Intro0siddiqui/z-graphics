@@ -261,3 +261,165 @@ pub fn swapBuffers(surface: *VulkanSurface) void {
         _ = c.vkQueueWaitIdle(surface.graphics_queue);
     }
 }
+
+// ---------------------------------------------------------
+// RESOURCE MANAGEMENT
+// ---------------------------------------------------------
+
+pub const VulkanBuffer = struct {
+    buffer: c.VkBuffer,
+    memory: c.VkDeviceMemory,
+    size: usize,
+};
+
+pub fn createBuffer(surface: *VulkanSurface, size: usize, buffer_type: u32) ?*VulkanBuffer {
+    if (builtin.os.tag != .linux) return null;
+
+    var usage: c.VkBufferUsageFlags = 0;
+    if (buffer_type == 1) usage = c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    if (buffer_type == 2) usage = c.VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+    if (buffer_type == 3) usage = c.VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+
+    const buffer_info = std.mem.zeroInit(c.VkBufferCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .size = size,
+        .usage = usage,
+        .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
+    });
+
+    var buffer: c.VkBuffer = null;
+    if (c.vkCreateBuffer(surface.device, &buffer_info, null, &buffer) != c.VK_SUCCESS) {
+        return null;
+    }
+
+    var mem_requirements: c.VkMemoryRequirements = undefined;
+    c.vkGetBufferMemoryRequirements(surface.device, buffer, &mem_requirements);
+
+    const mem_type_index = findMemoryType(
+        surface.physical_device,
+        mem_requirements.memoryTypeBits,
+        c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+    ) orelse {
+        c.vkDestroyBuffer(surface.device, buffer, null);
+        return null;
+    };
+
+    const alloc_info = std.mem.zeroInit(c.VkMemoryAllocateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize = mem_requirements.size,
+        .memoryTypeIndex = mem_type_index,
+    });
+
+    var buffer_memory: c.VkDeviceMemory = null;
+    if (c.vkAllocateMemory(surface.device, &alloc_info, null, &buffer_memory) != c.VK_SUCCESS) {
+        c.vkDestroyBuffer(surface.device, buffer, null);
+        return null;
+    }
+
+    if (c.vkBindBufferMemory(surface.device, buffer, buffer_memory, 0) != c.VK_SUCCESS) {
+        c.vkFreeMemory(surface.device, buffer_memory, null);
+        c.vkDestroyBuffer(surface.device, buffer, null);
+        return null;
+    }
+
+    var vulkan_buffer = std.heap.page_allocator.create(VulkanBuffer) catch return null;
+    vulkan_buffer.buffer = buffer;
+    vulkan_buffer.memory = buffer_memory;
+    vulkan_buffer.size = size;
+
+    return vulkan_buffer;
+}
+
+pub fn destroyBuffer(surface: *VulkanSurface, buffer: *VulkanBuffer) void {
+    if (builtin.os.tag != .linux) return;
+    
+    if (buffer.buffer != null) c.vkDestroyBuffer(surface.device, buffer.buffer, null);
+    if (buffer.memory != null) c.vkFreeMemory(surface.device, buffer.memory, null);
+    
+    std.heap.page_allocator.destroy(buffer);
+}
+
+// ---------------------------------------------------------
+// COMMAND RECORDING
+// ---------------------------------------------------------
+
+pub const VulkanCommandBuffer = struct {
+    cmd: c.VkCommandBuffer,
+    pool: c.VkCommandPool,
+};
+
+pub fn beginCommandBuffer(surface: *VulkanSurface) ?*VulkanCommandBuffer {
+    if (builtin.os.tag != .linux) return null;
+    
+    // Command Pool needs to be created first
+    // In a real engine, we'd cache the command pool in the surface, but for simplicity we create one per cmd buffer for now
+    const pool_info = std.mem.zeroInit(c.VkCommandPoolCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+        .flags = c.VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
+        // Assuming queue family 0 is graphics, we should ideally store the graphics_family index in surface
+        .queueFamilyIndex = 0, 
+    });
+
+    var command_pool: c.VkCommandPool = null;
+    if (c.vkCreateCommandPool(surface.device, &pool_info, null, &command_pool) != c.VK_SUCCESS) {
+        return null;
+    }
+
+    const alloc_info = std.mem.zeroInit(c.VkCommandBufferAllocateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .commandPool = command_pool,
+        .level = c.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = 1,
+    });
+
+    var command_buffer: c.VkCommandBuffer = null;
+    if (c.vkAllocateCommandBuffers(surface.device, &alloc_info, &command_buffer) != c.VK_SUCCESS) {
+        c.vkDestroyCommandPool(surface.device, command_pool, null);
+        return null;
+    }
+
+    const begin_info = std.mem.zeroInit(c.VkCommandBufferBeginInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = c.VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+    });
+
+    if (c.vkBeginCommandBuffer(command_buffer, &begin_info) != c.VK_SUCCESS) {
+        c.vkDestroyCommandPool(surface.device, command_pool, null);
+        return null;
+    }
+
+    var vulkan_cmd = std.heap.page_allocator.create(VulkanCommandBuffer) catch return null;
+    vulkan_cmd.cmd = command_buffer;
+    vulkan_cmd.pool = command_pool;
+
+    return vulkan_cmd;
+}
+
+pub fn cmdClearColor(cmd: *VulkanCommandBuffer, r: f32, g: f32, b: f32, a: f32) void {
+    if (builtin.os.tag != .linux) return;
+    
+    // As mentioned, a true clear requires an image or render pass.
+    // For now, this is a no-op placeholder that just consumes the arguments.
+    _ = cmd; _ = r; _ = g; _ = b; _ = a;
+}
+
+pub fn submitCommandBuffer(surface: *VulkanSurface, cmd: *VulkanCommandBuffer) void {
+    if (builtin.os.tag != .linux) return;
+    
+    _ = c.vkEndCommandBuffer(cmd.cmd);
+
+    const submit_info = std.mem.zeroInit(c.VkSubmitInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .commandBufferCount = 1,
+        .pCommandBuffers = &cmd.cmd,
+    });
+
+    _ = c.vkQueueSubmit(surface.graphics_queue, 1, &submit_info, null);
+    
+    // We wait for it to finish immediately for simplicity in this iteration
+    _ = c.vkQueueWaitIdle(surface.graphics_queue);
+
+    // Cleanup
+    c.vkDestroyCommandPool(surface.device, cmd.pool, null);
+    std.heap.page_allocator.destroy(cmd);
+}

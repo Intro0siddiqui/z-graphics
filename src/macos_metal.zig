@@ -53,3 +53,53 @@ pub fn swapBuffers(surface: *MetalSurface) void {
     // [command_buffer commit];
     // [command_buffer waitUntilCompleted]; // For headless sync
 }
+
+// ---------------------------------------------------------
+// RESOURCE MANAGEMENT
+// ---------------------------------------------------------
+
+pub const MetalBuffer = struct {
+    buffer: ?*anyopaque, // MTLBuffer
+    size: usize,
+};
+
+pub fn createBuffer(surface: *MetalSurface, size: usize, buffer_type: u32) ?*MetalBuffer {
+    if (builtin.os.tag != .macos) return null;
+    _ = surface;
+    _ = size;
+    _ = buffer_type;
+    return null;
+}
+
+pub fn destroyBuffer(surface: *MetalSurface, buffer: *MetalBuffer) void {
+    if (builtin.os.tag != .macos) return;
+    _ = surface;
+    _ = buffer;
+}
+
+// ---------------------------------------------------------
+// COMMAND RECORDING
+// ---------------------------------------------------------
+
+pub const MetalCommandBuffer = struct {
+    cmd_buffer: ?*anyopaque, // MTLCommandBuffer
+    render_encoder: ?*anyopaque, // MTLRenderCommandEncoder
+};
+
+pub fn beginCommandBuffer(surface: *MetalSurface) ?*MetalCommandBuffer {
+    if (builtin.os.tag != .macos) return null;
+    _ = surface;
+    return null;
+}
+
+pub fn cmdClearColor(cmd: *MetalCommandBuffer, r: f32, g: f32, b: f32, a: f32) void {
+    if (builtin.os.tag != .macos) return;
+    _ = cmd;
+    _ = r; _ = g; _ = b; _ = a;
+}
+
+pub fn submitCommandBuffer(surface: *MetalSurface, cmd: *MetalCommandBuffer) void {
+    if (builtin.os.tag != .macos) return;
+    _ = surface;
+    _ = cmd;
+}
