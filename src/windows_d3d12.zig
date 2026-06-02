@@ -171,7 +171,7 @@ pub fn createSurface(width: u32, height: u32) ?*D3D12Surface {
     const device = device_ptr.?;
 
     // COM VTable helpers
-    const vtbl = @as(*const [*]const *anyopaque, @ptrCast(device)).*;
+    const vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(device))).*;
 
     // 2. Allocate the surface state
     var surface_obj = std.heap.page_allocator.create(D3D12Surface) catch return null;
