@@ -57,13 +57,37 @@ pub fn createSurface(width: u32, height: u32) ?*MetalSurface {
     // 2. Allocate the surface state
     var surface_obj = std.heap.page_allocator.create(MetalSurface) catch return null;
     surface_obj.device = device;
-    surface_obj.command_queue = null; // Next: [device newCommandQueue]
     
-    // 3. Create Offscreen Image Buffer (MTLTexture)
-    // Next: Create MTLTextureDescriptor (pixelFormat = MTLPixelFormatRGBA8Unorm, usage = renderTarget)
-    // Next: [device newTextureWithDescriptor:]
-    surface_obj.texture = null; 
+    // 3. Create Command Queue
+    const newCommandQueue = sel_registerName("newCommandQueue");
+    surface_obj.command_queue = objc_msgSend(device, newCommandQueue);
     
+    // 4. Create Offscreen Image Buffer (MTLTexture)
+    const MTLTextureDescriptor = objc_getClass("MTLTextureDescriptor") orelse return null;
+    const texture2DDescriptorWithPixelFormat = sel_registerName("texture2DDescriptorWithPixelFormat:width:height:mipmapped:");
+    const newTextureWithDescriptor = sel_registerName("newTextureWithDescriptor:");
+
+    // MTLPixelFormatRGBA8Unorm = 70
+    const pixelFormat: usize = 70;
+    const mipmapped: usize = 0; // NO
+
+    const descriptor = objc_msgSend(
+        MTLTextureDescriptor,
+        texture2DDescriptorWithPixelFormat,
+        pixelFormat,
+        @as(usize, width),
+        @as(usize, height),
+        mipmapped,
+    );
+
+    // Set usage to RenderTarget (1) | ShaderRead (2)
+    const setUsage = sel_registerName("setUsage:");
+    _ = objc_msgSend(descriptor, setUsage, @as(usize, 1 | 2));
+
+    surface_obj.texture = objc_msgSend(device, newTextureWithDescriptor, descriptor);
+    
+    surface_obj.window = null;
+    surface_obj.view = null;
     surface_obj.width = width;
     surface_obj.height = height;
 
