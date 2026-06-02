@@ -26,15 +26,29 @@ pub fn main() !void {
             std.debug.print("Command buffer started successfully\n", .{});
             
             // Test Pipeline Creation (Reading from disk for now in smoke test)
-            const vert_code = std.fs.cwd().readFileAlloc(std.heap.page_allocator, "zig-out/shaders/basic.vert.spv", 1024 * 1024) catch |err| {
-                std.debug.print("Failed to read vertex shader: {}\n", .{err});
-                return;
+            const vert_code = blk: {
+                const file = std.fs.cwd().openFile("zig-out/shaders/basic.vert.spv", .{}) catch |err| {
+                    std.debug.print("Failed to open vertex shader: {}\n", .{err});
+                    return;
+                };
+                defer file.close();
+                break :blk file.readToEndAlloc(std.heap.page_allocator, 1024 * 1024) catch |err| {
+                    std.debug.print("Failed to read vertex shader: {}\n", .{err});
+                    return;
+                };
             };
             defer std.heap.page_allocator.free(vert_code);
 
-            const frag_code = std.fs.cwd().readFileAlloc(std.heap.page_allocator, "zig-out/shaders/basic.frag.spv", 1024 * 1024) catch |err| {
-                std.debug.print("Failed to read fragment shader: {}\n", .{err});
-                return;
+            const frag_code = blk: {
+                const file = std.fs.cwd().openFile("zig-out/shaders/basic.frag.spv", .{}) catch |err| {
+                    std.debug.print("Failed to open fragment shader: {}\n", .{err});
+                    return;
+                };
+                defer file.close();
+                break :blk file.readToEndAlloc(std.heap.page_allocator, 1024 * 1024) catch |err| {
+                    std.debug.print("Failed to read fragment shader: {}\n", .{err});
+                    return;
+                };
             };
             defer std.heap.page_allocator.free(frag_code);
 

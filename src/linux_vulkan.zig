@@ -561,7 +561,7 @@ fn createShaderModule(device: c.VkDevice, code: []const u8) ?c.VkShaderModule {
     const create_info = std.mem.zeroInit(c.VkShaderModuleCreateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
         .codeSize = code.len,
-        .pCode = @ptrCast(@alignCast(code.ptr)),
+        .pCode = @as([*]const u32, @ptrCast(@alignCast(code.ptr))),
     });
 
     var shader_module: c.VkShaderModule = null;
@@ -633,8 +633,8 @@ pub fn createPipeline(surface: *VulkanSurface, desc: *const @import("lib.zig").P
     const viewport = std.mem.zeroInit(c.VkViewport, .{
         .x = 0.0,
         .y = 0.0,
-        .width = @floatFromInt(surface.width),
-        .height = @floatFromInt(surface.height),
+        .width = @as(f32, @floatFromInt(surface.width)),
+        .height = @as(f32, @floatFromInt(surface.height)),
         .minDepth = 0.0,
         .maxDepth = 1.0,
     });
