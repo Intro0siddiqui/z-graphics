@@ -8,8 +8,8 @@ pub fn main() !void {
         std.process.exit(1);
     }
     std.debug.print("ZawraGraphics initialized successfully\n", .{});
-    
-    const surface = zgraphics.ZawraGraphics_CreateSurface(800, 600);
+
+    const surface = zgraphics.ZawraGraphics_CreateSurface(null, 800, 600);
     if (surface == null) {
         std.debug.print("Surface creation returned null (this is expected if Vulkan is not fully available on CI, but means backend is still stubbed/failing)\n", .{});
     } else {

@@ -53,13 +53,13 @@ pub export fn ZawraGraphics_Initialize() bool {
 
 /// Creates a surface for rendering.
 /// Returns an opaque handle to a platform-specific surface object.
-pub export fn ZawraGraphics_CreateSurface(width: u32, height: u32) ?ZawraGraphicsHandle {
+pub export fn ZawraGraphics_CreateSurface(window: ?ZawraGraphicsHandle, width: u32, height: u32) ?ZawraGraphicsHandle {
     if (builtin.os.tag == .linux) {
-        return @ptrCast(linux_vulkan.createSurface(width, height));
+        return @ptrCast(linux_vulkan.createSurface(window, width, height));
     } else if (builtin.os.tag == .macos) {
-        return @ptrCast(macos_metal.createSurface(width, height));
+        return @ptrCast(macos_metal.createSurface(window, width, height));
     } else if (builtin.os.tag == .windows) {
-        return @ptrCast(windows_d3d12.createSurface(width, height));
+        return @ptrCast(windows_d3d12.createSurface(window, width, height));
     }
     
     return null;

@@ -66,10 +66,10 @@ fn findMemoryType(physical_device: c.VkPhysicalDevice, type_filter: u32, propert
     return null;
 }
 
-pub fn createSurface(width: u32, height: u32) ?*VulkanSurface {
+pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*VulkanSurface {
     if (builtin.os.tag != .linux) return null;
 
-    // 1. Initialize Vulkan Instance
+    // 1. Create Vulkan Instance
     const app_info = std.mem.zeroInit(c.VkApplicationInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_APPLICATION_INFO,
         .pApplicationName = "Zawra",
@@ -357,6 +357,8 @@ pub fn createSurface(width: u32, height: u32) ?*VulkanSurface {
     surface_obj.render_pass = render_pass;
     surface_obj.fence = fence;
     surface_obj.external_memory_enabled = external_memory_enabled;
+    surface_obj.window = window;
+    surface_obj.x_display = null; // Should be retrieved if window is present
     surface_obj.width = width;
     surface_obj.height = height;
 
