@@ -27,11 +27,22 @@ pub const ZawraGraphicsBuffer = *anyopaque;
 /// Opaque pointer to a Command Buffer for recording drawing operations.
 pub const ZawraGraphicsCommandBuffer = *anyopaque;
 
+/// Opaque pointer to a Pipeline State Object (PSO).
+pub const ZawraGraphicsPipeline = *anyopaque;
+
 /// Buffer usage types
 pub const BufferType = enum(u32) {
     Vertex = 1,
     Index = 2,
     Uniform = 3,
+};
+
+/// Pipeline description for PSO creation
+pub const PipelineDesc = extern struct {
+    vertex_shader: [*]const u8,
+    vertex_shader_len: usize,
+    pixel_shader: [*]const u8,
+    pixel_shader_len: usize,
 };
 
 /// Initializes the global graphics state.
@@ -153,6 +164,43 @@ pub export fn ZawraGraphics_SubmitCommandBuffer(handle: ZawraGraphicsHandle, cmd
         macos_metal.submitCommandBuffer(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(cmd)));
     } else if (builtin.os.tag == .windows) {
         windows_d3d12.submitCommandBuffer(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(cmd)));
+    }
+}
+
+// ---------------------------------------------------------
+// PIPELINE MANAGEMENT (Feature 3)
+// ---------------------------------------------------------
+
+/// Creates a Pipeline State Object.
+pub export fn ZawraGraphics_CreatePipeline(handle: ZawraGraphicsHandle, desc: *const PipelineDesc) ?ZawraGraphicsPipeline {
+    if (builtin.os.tag == .linux) {
+        return @ptrCast(linux_vulkan.createPipeline(@ptrCast(@alignCast(handle)), desc));
+    } else if (builtin.os.tag == .macos) {
+        return @ptrCast(macos_metal.createPipeline(@ptrCast(@alignCast(handle)), desc));
+    } else if (builtin.os.tag == .windows) {
+        return @ptrCast(windows_d3d12.createPipeline(@ptrCast(@alignCast(handle)), desc));
+    }
+    return null;
+}
+
+pub export fn ZawraGraphics_DestroyPipeline(handle: ZawraGraphicsHandle, pipeline: ZawraGraphicsPipeline) void {
+    if (builtin.os.tag == .linux) {
+        linux_vulkan.destroyPipeline(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(pipeline)));
+    } else if (builtin.os.tag == .macos) {
+        macos_metal.destroyPipeline(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(pipeline)));
+    } else if (builtin.os.tag == .windows) {
+        windows_d3d12.destroyPipeline(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(pipeline)));
+    }
+}
+
+/// Binds a pipeline to a command buffer.
+pub export fn ZawraGraphics_CmdBindPipeline(cmd: ZawraGraphicsCommandBuffer, pipeline: ZawraGraphicsPipeline) void {
+    if (builtin.os.tag == .linux) {
+        linux_vulkan.cmdBindPipeline(@ptrCast(@alignCast(cmd)), @ptrCast(@alignCast(pipeline)));
+    } else if (builtin.os.tag == .macos) {
+        macos_metal.cmdBindPipeline(@ptrCast(@alignCast(cmd)), @ptrCast(@alignCast(pipeline)));
+    } else if (builtin.os.tag == .windows) {
+        windows_d3d12.cmdBindPipeline(@ptrCast(@alignCast(cmd)), @ptrCast(@alignCast(pipeline)));
     }
 }
 
