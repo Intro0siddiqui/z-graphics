@@ -7,9 +7,83 @@ pub const D3D12Surface = struct {
     command_queue: ?*anyopaque,
     resource: ?*anyopaque, // ID3D12Resource used as the offscreen render target
     allocation: ?*anyopaque, // D3D12MA Allocation (if using an allocator) or heap pointer
+    hwnd: ?*anyopaque, // Native Windows handle for headful rendering
+    swapchain: ?*anyopaque, // IDXGISwapChain for presentation
     width: u32,
     height: u32,
 };
+
+// --- Win32 FFI ---
+const HWND = *anyopaque;
+const HINSTANCE = *anyopaque;
+const WNDPROC = *const fn (HWND, u32, usize, isize) callconv(.stdcall) isize;
+
+const WNDCLASSEXA = extern struct {
+    cbSize: u32 = @sizeOf(WNDCLASSEXA),
+    style: u32,
+    lpfnWndProc: WNDPROC,
+    cbClsExtra: i32 = 0,
+    cbWndExtra: i32 = 0,
+    hInstance: HINSTANCE,
+    hIcon: ?*anyopaque = null,
+    hCursor: ?*anyopaque = null,
+    hbrBackground: ?*anyopaque = null,
+    lpszMenuName: ?[*:0]const u8 = null,
+    lpszClassName: [*:0]const u8,
+    hIconSm: ?*anyopaque = null,
+};
+
+extern "user32" fn RegisterClassExA(lpwcx: *const WNDCLASSEXA) callconv(.stdcall) u16;
+extern "user32" fn CreateWindowExA(
+    dwExStyle: u32,
+    lpClassName: [*:0]const u8,
+    lpWindowName: [*:0]const u8,
+    dwStyle: u32,
+    x: i32,
+    y: i32,
+    nWidth: i32,
+    nHeight: i32,
+    hWndParent: ?HWND,
+    hMenu: ?*anyopaque,
+    hInstance: HINSTANCE,
+    lpParam: ?*anyopaque,
+) callconv(.stdcall) ?HWND;
+extern "user32" fn DefWindowProcA(hWnd: HWND, Msg: u32, wParam: usize, lParam: isize) callconv(.stdcall) isize;
+extern "kernel32" fn GetModuleHandleA(lpModuleName: ?[*:0]const u8) callconv(.stdcall) HINSTANCE;
+
+const WS_OVERLAPPEDWINDOW = 0x00CF0000;
+const WS_VISIBLE = 0x10000000;
+
+fn windowProc(hwnd: HWND, msg: u32, wparam: usize, lparam: isize) callconv(.stdcall) isize {
+    return DefWindowProcA(hwnd, msg, wparam, lparam);
+}
+
+pub fn createWindow(width: u32, height: u32) ?*anyopaque {
+    if (builtin.os.tag != .windows) return null;
+
+    const h_inst = GetModuleHandleA(null);
+    const class_name = "ZawraWindowClass";
+
+    const wc = WNDCLASSEXA{
+        .style = 0,
+        .lpfnWndProc = windowProc,
+        .hInstance = h_inst,
+        .lpszClassName = class_name,
+    };
+
+    _ = RegisterClassExA(&wc);
+
+    const hwnd = CreateWindowExA(
+        0,
+        class_name,
+        "Zawra Browser",
+        WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+        100, 100, @intCast(width), @intCast(height),
+        null, null, h_inst, null,
+    ) orelse return null;
+
+    return hwnd;
+}
 
 // Minimal COM/D3D12 types for FFI without requiring the massive Windows SDK headers
 const HRESULT = i32;

@@ -205,9 +205,14 @@ pub export fn ZawraGraphics_CmdBindPipeline(cmd: ZawraGraphicsCommandBuffer, pip
     }
 }
 
-/// Headfull window creation (optional/debug).
+/// Headfull window creation.
 pub export fn ZawraGraphics_CreateWindow(width: u32, height: u32) ?ZawraGraphicsHandle {
-    _ = width;
-    _ = height;
+    if (builtin.os.tag == .linux) {
+        return @ptrCast(linux_vulkan.createWindow(width, height));
+    } else if (builtin.os.tag == .macos) {
+        return @ptrCast(macos_metal.createWindow(width, height));
+    } else if (builtin.os.tag == .windows) {
+        return @ptrCast(windows_d3d12.createWindow(width, height));
+    }
     return null;
 }

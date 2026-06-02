@@ -16,9 +16,43 @@ pub const VulkanSurface = struct {
     render_pass: c.VkRenderPass,
     fence: c.VkFence,
     external_memory_enabled: bool,
+    window: ?*anyopaque, // X11 Window
+    x_display: ?*anyopaque, // X11 Display
     width: u32,
     height: u32,
 };
+
+// --- X11 FFI ---
+extern fn XOpenDisplay(display_name: ?[*:0]const u8) ?*anyopaque;
+extern fn XDefaultRootWindow(display: *anyopaque) usize;
+extern fn XCreateSimpleWindow(
+    display: *anyopaque,
+    parent: usize,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    border_width: u32,
+    border: usize,
+    background: usize,
+) usize;
+extern fn XMapWindow(display: *anyopaque, window: usize) i32;
+extern fn XStoreName(display: *anyopaque, window: usize, window_name: [*:0]const u8) i32;
+
+pub fn createWindow(width: u32, height: u32) ?*anyopaque {
+    if (builtin.os.tag != .linux) return null;
+
+    const display = XOpenDisplay(null) orelse return null;
+    const root = XDefaultRootWindow(display);
+    const window = XCreateSimpleWindow(display, root, 100, 100, width, height, 1, 0, 0);
+
+    _ = XStoreName(display, window, "Zawra Browser");
+    _ = XMapWindow(display, window);
+
+    // Return the window as an opaque handle. 
+    // In X11, Window is typically a 'long' (usize), so we cast it to *anyopaque for FFI consistency.
+    return @ptrFromInt(window);
+}
 
 fn findMemoryType(physical_device: c.VkPhysicalDevice, type_filter: u32, properties: c.VkMemoryPropertyFlags) ?u32 {
     var mem_properties: c.VkPhysicalDeviceMemoryProperties = undefined;

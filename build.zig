@@ -56,13 +56,17 @@ pub fn build(b: *std.Build) void {
 
     if (target.result.os.tag == .linux) {
         smoke_test.root_module.linkSystemLibrary("vulkan", .{});
+        smoke_test.root_module.linkSystemLibrary("X11", .{});
     } else if (target.result.os.tag == .macos) {
         smoke_test.root_module.linkFramework("Metal", .{});
         smoke_test.root_module.linkFramework("Foundation", .{});
         smoke_test.root_module.linkFramework("QuartzCore", .{});
+        smoke_test.root_module.linkFramework("AppKit", .{});
     } else if (target.result.os.tag == .windows) {
         smoke_test.root_module.linkSystemLibrary("d3d12", .{});
         smoke_test.root_module.linkSystemLibrary("dxgi", .{});
+        smoke_test.root_module.linkSystemLibrary("user32", .{});
+        smoke_test.root_module.linkSystemLibrary("kernel32", .{});
     }
 
     smoke_test.root_module.addImport("lib", lib_mod);
