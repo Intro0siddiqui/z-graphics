@@ -28,6 +28,24 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
+    // Shader compilation step (Vulkan/SPIR-V)
+    const shaders_dir = b.path("shaders");
+    const basic_hlsl = shaders_dir.path(b, "basic.hlsl");
+    
+    const compile_vert = b.addSystemCommand(&.{ "glslangValidator", "-V", "-D", "-e", "VSMain", "-S", "vert", "--target-env", "vulkan1.0", "-o" });
+    const vert_spirv = compile_vert.addOutputFileArg("basic.vert.spv");
+    compile_vert.addFileArg(basic_hlsl);
+
+    const compile_frag = b.addSystemCommand(&.{ "glslangValidator", "-V", "-D", "-e", "PSMain", "-S", "frag", "--target-env", "vulkan1.0", "-o" });
+    const frag_spirv = compile_frag.addOutputFileArg("basic.frag.spv");
+    compile_frag.addFileArg(basic_hlsl);
+
+    const install_vert = b.addInstallFile(vert_spirv, "shaders/basic.vert.spv");
+    const install_frag = b.addInstallFile(frag_spirv, "shaders/basic.frag.spv");
+
+    smoke_test.step.dependOn(&install_vert.step);
+    smoke_test.step.dependOn(&install_frag.step);
+
     smoke_test.root_module.link_libc = true;
 
     if (target.result.os.tag == .linux) {

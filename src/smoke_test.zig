@@ -24,6 +24,38 @@ pub fn main() !void {
         const cmd = zgraphics.ZawraGraphics_BeginCommandBuffer(surface.?);
         if (cmd != null) {
             std.debug.print("Command buffer started successfully\n", .{});
+            
+            // Test Pipeline Creation (Reading from disk for now in smoke test)
+            const vert_code = std.fs.cwd().readFileAlloc(std.heap.page_allocator, "zig-out/shaders/basic.vert.spv", 1024 * 1024) catch |err| {
+                std.debug.print("Failed to read vertex shader: {}\n", .{err});
+                return;
+            };
+            defer std.heap.page_allocator.free(vert_code);
+
+            const frag_code = std.fs.cwd().readFileAlloc(std.heap.page_allocator, "zig-out/shaders/basic.frag.spv", 1024 * 1024) catch |err| {
+                std.debug.print("Failed to read fragment shader: {}\n", .{err});
+                return;
+            };
+            defer std.heap.page_allocator.free(frag_code);
+
+            const pipeline_desc = zgraphics.PipelineDesc{
+                .vertex_shader = vert_code.ptr,
+                .vertex_shader_len = vert_code.len,
+                .pixel_shader = frag_code.ptr,
+                .pixel_shader_len = frag_code.len,
+            };
+            
+            const pipeline = zgraphics.ZawraGraphics_CreatePipeline(surface.?, &pipeline_desc);
+            if (pipeline != null) {
+                std.debug.print("Pipeline created successfully\n", .{});
+                zgraphics.ZawraGraphics_CmdBindPipeline(cmd.?, pipeline.?);
+                std.debug.print("Pipeline bound successfully\n", .{});
+                zgraphics.ZawraGraphics_DestroyPipeline(surface.?, pipeline.?);
+                std.debug.print("Pipeline destroyed successfully\n", .{});
+            } else {
+                std.debug.print("Pipeline creation returned null (this is expected if renderPass is missing/stubbed)\n", .{});
+            }
+
             zgraphics.ZawraGraphics_CmdClearColor(cmd.?, 1.0, 0.0, 0.0, 1.0);
             zgraphics.ZawraGraphics_SubmitCommandBuffer(surface.?, cmd.?);
             std.debug.print("Command buffer submitted successfully\n", .{});

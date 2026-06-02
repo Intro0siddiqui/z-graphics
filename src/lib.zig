@@ -39,9 +39,9 @@ pub const BufferType = enum(u32) {
 
 /// Pipeline description for PSO creation
 pub const PipelineDesc = extern struct {
-    vertex_shader: [*]const u8,
+    vertex_shader: ?[*]const u8,
     vertex_shader_len: usize,
-    pixel_shader: [*]const u8,
+    pixel_shader: ?[*]const u8,
     pixel_shader_len: usize,
 };
 
@@ -183,13 +183,14 @@ pub export fn ZawraGraphics_CreatePipeline(handle: ZawraGraphicsHandle, desc: *c
     return null;
 }
 
-pub export fn ZawraGraphics_DestroyPipeline(handle: ZawraGraphicsHandle, pipeline: ZawraGraphicsPipeline) void {
+pub export fn ZawraGraphics_DestroyPipeline(handle: ZawraGraphicsHandle, pipeline: ?ZawraGraphicsPipeline) void {
+    if (pipeline == null) return;
     if (builtin.os.tag == .linux) {
-        linux_vulkan.destroyPipeline(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(pipeline)));
+        linux_vulkan.destroyPipeline(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(pipeline.?)));
     } else if (builtin.os.tag == .macos) {
-        macos_metal.destroyPipeline(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(pipeline)));
+        macos_metal.destroyPipeline(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(pipeline.?)));
     } else if (builtin.os.tag == .windows) {
-        windows_d3d12.destroyPipeline(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(pipeline)));
+        windows_d3d12.destroyPipeline(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(pipeline.?)));
     }
 }
 

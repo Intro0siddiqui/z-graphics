@@ -127,10 +127,10 @@ pub fn createPipeline(surface: *MetalSurface, desc: *const @import("lib.zig").Pi
     return null;
 }
 
-pub fn destroyPipeline(surface: *MetalSurface, pipeline: *MetalPipeline) void {
-    if (builtin.os.tag != .macos) return;
+pub fn destroyPipeline(surface: *MetalSurface, pipeline: ?*MetalPipeline) void {
+    if (builtin.os.tag != .macos or pipeline == null) return;
     _ = surface;
-    std.heap.page_allocator.destroy(pipeline);
+    std.heap.page_allocator.destroy(pipeline.?);
 }
 
 pub fn cmdBindPipeline(cmd: *MetalCommandBuffer, pipeline: *MetalPipeline) void {

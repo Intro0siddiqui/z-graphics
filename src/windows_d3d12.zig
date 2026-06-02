@@ -161,10 +161,10 @@ pub fn createPipeline(surface: *D3D12Surface, desc: *const @import("lib.zig").Pi
     return null;
 }
 
-pub fn destroyPipeline(surface: *D3D12Surface, pipeline: *D3D12Pipeline) void {
-    if (builtin.os.tag != .windows) return;
+pub fn destroyPipeline(surface: *D3D12Surface, pipeline: ?*D3D12Pipeline) void {
+    if (builtin.os.tag != .windows or pipeline == null) return;
     _ = surface;
-    std.heap.page_allocator.destroy(pipeline);
+    std.heap.page_allocator.destroy(pipeline.?);
 }
 
 pub fn cmdBindPipeline(cmd: *D3D12CommandBuffer, pipeline: *D3D12Pipeline) void {
