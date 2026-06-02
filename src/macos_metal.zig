@@ -54,6 +54,14 @@ pub fn swapBuffers(surface: *MetalSurface) void {
     // [command_buffer waitUntilCompleted]; // For headless sync
 }
 
+pub fn exportSurfaceFD(surface: *MetalSurface) i32 {
+    if (builtin.os.tag != .macos) return -1;
+    _ = surface;
+    // For macOS, we'd typically export an IOSurfaceID.
+    // We cast it to i32 for the generic FFI interface.
+    return -1; // Stub
+}
+
 // ---------------------------------------------------------
 // RESOURCE MANAGEMENT
 // ---------------------------------------------------------
