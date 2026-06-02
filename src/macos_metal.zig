@@ -48,7 +48,7 @@ pub fn createWindow(width: u32, height: u32) ?*anyopaque {
 // Extern declarations for C-linkable Metal symbols
 extern fn MTLCreateSystemDefaultDevice() ?*anyopaque;
 
-pub fn createSurface(width: u32, height: u32) ?*MetalSurface {
+pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*MetalSurface {
     if (builtin.os.tag != .macos) return null;
 
     // 1. Create the system default Metal device
@@ -57,6 +57,7 @@ pub fn createSurface(width: u32, height: u32) ?*MetalSurface {
     // 2. Allocate the surface state
     var surface_obj = std.heap.page_allocator.create(MetalSurface) catch return null;
     surface_obj.device = device;
+    surface_obj.window = window;
     
     // 3. Create Command Queue
     const newCommandQueue = sel_registerName("newCommandQueue");

@@ -162,7 +162,7 @@ extern "d3d12" fn D3D12CreateDevice(
     ppDevice: ?*?*anyopaque,
 ) callconv(.c) HRESULT;
 
-pub fn createSurface(width: u32, height: u32) ?*D3D12Surface {
+pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*D3D12Surface {
     if (builtin.os.tag != .windows) return null;
 
     // 1. Create the D3D12 Device
@@ -176,6 +176,7 @@ pub fn createSurface(width: u32, height: u32) ?*D3D12Surface {
     // 2. Allocate the surface state
     var surface_obj = std.heap.page_allocator.create(D3D12Surface) catch return null;
     surface_obj.device = device;
+    surface_obj.hwnd = window;
     
     // 3. Create Command Queue (vtbl[8])
     const queue_desc = D3D12_COMMAND_QUEUE_DESC{
