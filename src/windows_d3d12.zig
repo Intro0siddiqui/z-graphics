@@ -144,3 +144,31 @@ pub fn submitCommandBuffer(surface: *D3D12Surface, cmd: *D3D12CommandBuffer) voi
     _ = surface;
     _ = cmd;
 }
+
+// ---------------------------------------------------------
+// PIPELINE MANAGEMENT
+// ---------------------------------------------------------
+
+pub const D3D12Pipeline = struct {
+    pipeline_state: ?*anyopaque, // ID3D12PipelineState
+    root_signature: ?*anyopaque, // ID3D12RootSignature
+};
+
+pub fn createPipeline(surface: *D3D12Surface, desc: *const @import("lib.zig").PipelineDesc) ?*D3D12Pipeline {
+    if (builtin.os.tag != .windows) return null;
+    _ = surface;
+    _ = desc;
+    return null;
+}
+
+pub fn destroyPipeline(surface: *D3D12Surface, pipeline: *D3D12Pipeline) void {
+    if (builtin.os.tag != .windows) return;
+    _ = surface;
+    std.heap.page_allocator.destroy(pipeline);
+}
+
+pub fn cmdBindPipeline(cmd: *D3D12CommandBuffer, pipeline: *D3D12Pipeline) void {
+    if (builtin.os.tag != .windows) return;
+    _ = cmd;
+    _ = pipeline;
+}

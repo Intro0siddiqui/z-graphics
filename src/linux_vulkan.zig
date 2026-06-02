@@ -503,3 +503,32 @@ pub fn submitCommandBuffer(surface: *VulkanSurface, cmd: *VulkanCommandBuffer) v
     c.vkDestroyCommandPool(surface.device, cmd.pool, null);
     std.heap.page_allocator.destroy(cmd);
 }
+
+// ---------------------------------------------------------
+// PIPELINE MANAGEMENT
+// ---------------------------------------------------------
+
+pub const VulkanPipeline = struct {
+    pipeline: c.VkPipeline,
+    layout: c.VkPipelineLayout,
+};
+
+pub fn createPipeline(surface: *VulkanSurface, desc: *const @import("lib.zig").PipelineDesc) ?*VulkanPipeline {
+    if (builtin.os.tag != .linux) return null;
+    _ = surface;
+    _ = desc;
+    // TODO: vkCreateShaderModule, vkCreatePipelineLayout, vkCreateGraphicsPipelines
+    return null;
+}
+
+pub fn destroyPipeline(surface: *VulkanSurface, pipeline: *VulkanPipeline) void {
+    if (builtin.os.tag != .linux) return;
+    if (pipeline.pipeline != null) c.vkDestroyPipeline(surface.device, pipeline.pipeline, null);
+    if (pipeline.layout != null) c.vkDestroyPipelineLayout(surface.device, pipeline.layout, null);
+    std.heap.page_allocator.destroy(pipeline);
+}
+
+pub fn cmdBindPipeline(cmd: *VulkanCommandBuffer, pipeline: *VulkanPipeline) void {
+    if (builtin.os.tag != .linux) return;
+    c.vkCmdBindPipeline(cmd.cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
+}

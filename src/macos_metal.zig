@@ -111,3 +111,30 @@ pub fn submitCommandBuffer(surface: *MetalSurface, cmd: *MetalCommandBuffer) voi
     _ = surface;
     _ = cmd;
 }
+
+// ---------------------------------------------------------
+// PIPELINE MANAGEMENT
+// ---------------------------------------------------------
+
+pub const MetalPipeline = struct {
+    pipeline_state: ?*anyopaque, // MTLRenderPipelineState
+};
+
+pub fn createPipeline(surface: *MetalSurface, desc: *const @import("lib.zig").PipelineDesc) ?*MetalPipeline {
+    if (builtin.os.tag != .macos) return null;
+    _ = surface;
+    _ = desc;
+    return null;
+}
+
+pub fn destroyPipeline(surface: *MetalSurface, pipeline: *MetalPipeline) void {
+    if (builtin.os.tag != .macos) return;
+    _ = surface;
+    std.heap.page_allocator.destroy(pipeline);
+}
+
+pub fn cmdBindPipeline(cmd: *MetalCommandBuffer, pipeline: *MetalPipeline) void {
+    if (builtin.os.tag != .macos) return;
+    _ = cmd;
+    _ = pipeline;
+}
