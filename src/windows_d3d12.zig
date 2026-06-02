@@ -153,14 +153,39 @@ const D3D12_RESOURCE_DESC = extern struct {
     Flags: u32,
 };
 
-const DXGI_FORMAT_R8G8B8A8_UNORM = 28;
-
 extern "d3d12" fn D3D12CreateDevice(
     pAdapter: ?*anyopaque,
     MinimumFeatureLevel: D3D_FEATURE_LEVEL,
     riid: *const GUID,
     ppDevice: ?*?*anyopaque,
 ) callconv(.c) HRESULT;
+
+const DXGI_FORMAT_R8G8B8A8_UNORM = 28;
+const DXGI_USAGE_RENDER_TARGET_OUTPUT = 1 << (1 + 4);
+const DXGI_SWAP_EFFECT_FLIP_DISCARD = 4;
+const DXGI_SWAP_CHAIN_DESC1 = extern struct {
+    Width: u32,
+    Height: u32,
+    Format: u32,
+    Stereo: i32,
+    SampleDesc: extern struct { Count: u32, Quality: u32 },
+    BufferUsage: u32,
+    BufferCount: u32,
+    Scaling: i32,
+    SwapEffect: i32,
+    AlphaMode: i32,
+    Flags: u32,
+};
+
+// IID_IDXGIFactory4: {1bc6ea02-ef36-464f-bf0c-21ca39e5168a}
+const IID_IDXGIFactory4 = GUID{
+    .Data1 = 0x1bc6ea02,
+    .Data2 = 0xef36,
+    .Data3 = 0x464f,
+    .Data4 = .{ 0xbf, 0x0c, 0x21, 0xca, 0x39, 0xe5, 0x16, 0x8a },
+};
+
+extern "dxgi" fn CreateDXGIFactory2(Flags: u32, riid: *const GUID, ppFactory: ?*?*anyopaque) callconv(.c) HRESULT;
 
 pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*D3D12Surface {
     if (builtin.os.tag != .windows) return null;
@@ -214,8 +239,38 @@ pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*D3D12Surfac
     _ = CreateCommittedResource(device, &heap_props, 0, &res_desc, 4, null, &IID_ID3D12Resource, &surface_obj.resource);
     
     surface_obj.allocation = null;
-    surface_obj.hwnd = null;
     surface_obj.swapchain = null;
+
+    // 5. Create Swapchain if HWND is provided
+    if (surface_obj.hwnd != null) {
+        var factory: ?*anyopaque = null;
+        if (CreateDXGIFactory2(0, &IID_IDXGIFactory4, &factory) >= 0) {
+            const f_vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(factory.?))).*;
+            
+            const sd = DXGI_SWAP_CHAIN_DESC1{
+                .Width = width,
+                .Height = height,
+                .Format = DXGI_FORMAT_R8G8B8A8_UNORM,
+                .Stereo = 0,
+                .SampleDesc = .{ .Count = 1, .Quality = 0 },
+                .BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT,
+                .BufferCount = 2,
+                .Scaling = 0, // STRETCH
+                .SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD,
+                .AlphaMode = 0, // UNSPECIFIED
+                .Flags = 0,
+            };
+            
+            // CreateSwapChainForHwnd is typically at vtbl[15] for IDXGIFactory2+
+            const CreateSwapChainForHwnd = @as(*const fn (*anyopaque, *anyopaque, HWND, *const DXGI_SWAP_CHAIN_DESC1, ?*const anyopaque, ?*anyopaque, *?*anyopaque) callconv(.c) HRESULT, @ptrCast(f_vtbl[15]));
+            _ = CreateSwapChainForHwnd(factory.?, surface_obj.command_queue.?, surface_obj.hwnd.?, &sd, null, null, &surface_obj.swapchain);
+            
+            // Cleanup factory (COM Release is vtbl[2])
+            const Release = @as(*const fn (*anyopaque) callconv(.c) u32, @ptrCast(f_vtbl[2]));
+            _ = Release(factory.?);
+        }
+    }
+
     surface_obj.width = width;
     surface_obj.height = height;
 
@@ -234,7 +289,14 @@ pub fn destroySurface(surface: *D3D12Surface) void {
 
 pub fn swapBuffers(surface: *D3D12Surface) void {
     if (builtin.os.tag != .windows) return;
-    _ = surface;
+    
+    if (surface.swapchain) |sc| {
+        const vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(sc))).*;
+        // Present is typically at vtbl[8] for IDXGISwapChain
+        const Present = @as(*const fn (*anyopaque, u32, u32) callconv(.c) HRESULT, @ptrCast(vtbl[8]));
+        _ = Present(sc, 1, 0);
+    }
+
     // Command Queue execution would occur here.
     // ID3D12CommandQueue::ExecuteCommandLists(...)
     // ID3D12Fence::SetEventOnCompletion(...) // For headless sync

@@ -81,14 +81,35 @@ pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*MetalSurfac
         mipmapped,
     );
 
-    // Set usage to RenderTarget (1) | ShaderRead (2)
     const setUsage = sel_registerName("setUsage:");
     _ = objc_msgSend(descriptor, setUsage, @as(usize, 1 | 2));
 
     surface_obj.texture = objc_msgSend(device, newTextureWithDescriptor, descriptor);
     
-    surface_obj.window = null;
-    surface_obj.view = null;
+    // 5. Setup CAMetalLayer if window is provided
+    if (surface_obj.window) |win| {
+        const CAMetalLayer = objc_getClass("CAMetalLayer") orelse return null;
+        const layer_alloc = objc_msgSend(CAMetalLayer, sel_registerName("alloc"));
+        const layer = objc_msgSend(layer_alloc, sel_registerName("init"));
+        
+        const setDevice = sel_registerName("setDevice:");
+        _ = objc_msgSend(layer, setDevice, device);
+        
+        const setPixelFormat = sel_registerName("setPixelFormat:");
+        _ = objc_msgSend(layer, setPixelFormat, pixelFormat);
+        
+        const contentView = objc_msgSend(win, sel_registerName("contentView"));
+        const setLayer = sel_registerName("setLayer:");
+        const setWantsLayer = sel_registerName("setWantsLayer:");
+        
+        _ = objc_msgSend(contentView, setLayer, layer);
+        _ = objc_msgSend(contentView, setWantsLayer, @as(u8, 1));
+        
+        surface_obj.view = layer;
+    } else {
+        surface_obj.view = null;
+    }
+
     surface_obj.width = width;
     surface_obj.height = height;
 
@@ -98,20 +119,23 @@ pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*MetalSurfac
 pub fn destroySurface(surface: *MetalSurface) void {
     if (builtin.os.tag != .macos) return;
     
-    // Note: Metal uses ARC (Automatic Reference Counting).
-    // In a pure C/Zig context, we would use CFRelease or similar if they were CoreFoundation objects,
-    // but Metal objects usually require [object release] via Obj-C runtime.
-    // Cleanup of surface.texture and surface.command_queue would happen here.
+    // Cleanup of surface.texture and surface.command_queue would happen here via release
     
     std.heap.page_allocator.destroy(surface);
 }
 
 pub fn swapBuffers(surface: *MetalSurface) void {
     if (builtin.os.tag != .macos) return;
-    _ = surface;
-    // Command Buffer submission and presentation would occur here.
-    // [command_buffer commit];
-    // [command_buffer waitUntilCompleted]; // For headless sync
+    
+    if (surface.view) |layer| {
+        const nextDrawable = sel_registerName("nextDrawable");
+        const drawable = objc_msgSend(layer, nextDrawable);
+        if (drawable) |d| {
+            const present = sel_registerName("present");
+            // This is a simplification; normally we'd present via command buffer
+            _ = objc_msgSend(d, present);
+        }
+    }
 }
 
 pub fn exportSurfaceFD(surface: *MetalSurface) i32 {
