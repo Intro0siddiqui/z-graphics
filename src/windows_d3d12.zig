@@ -105,6 +105,56 @@ const IID_ID3D12Device = GUID{
     .Data4 = .{ 0x8e, 0x95, 0x95, 0x13, 0xa4, 0xac, 0x69, 0x24 },
 };
 
+// IID_ID3D12CommandQueue: {0ec870a6-5d7e-4c22-8cfc-5baae07616ed}
+const IID_ID3D12CommandQueue = GUID{
+    .Data1 = 0x0ec870a6,
+    .Data2 = 0x5d7e,
+    .Data3 = 0x4c22,
+    .Data4 = .{ 0x8c, 0xfc, 0x5b, 0xaa, 0xe0, 0x76, 0x16, 0xed },
+};
+
+// IID_ID3D12Resource: {696442be-a72e-4059-bc8f-5b1ad2ffbca6}
+const IID_ID3D12Resource = GUID{
+    .Data1 = 0x696442be,
+    .Data2 = 0xa72e,
+    .Data3 = 0x4059,
+    .Data4 = .{ 0xbc, 0x8f, 0x5b, 0x1a, 0xd2, 0xff, 0xbc, 0xa6 },
+};
+
+const D3D12_COMMAND_LIST_TYPE_DIRECT = 0;
+const D3D12_COMMAND_QUEUE_DESC = extern struct {
+    Type: u32,
+    Priority: i32,
+    Flags: u32,
+    NodeMask: u32,
+};
+
+const D3D12_HEAP_TYPE_DEFAULT = 1;
+const D3D12_HEAP_PROPERTIES = extern struct {
+    Type: u32,
+    CPUPageProperty: u32,
+    MemoryPoolPreference: u32,
+    CreationNodeMask: u32,
+    VisibleNodeMask: u32,
+};
+
+const D3D12_RESOURCE_DIMENSION_TEXTURE2D = 3;
+const D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET = 1;
+const D3D12_RESOURCE_DESC = extern struct {
+    Dimension: u32,
+    Alignment: u64,
+    Width: u64,
+    Height: u32,
+    DepthOrArraySize: u16,
+    MipLevels: u16,
+    Format: u32,
+    SampleDesc: extern struct { Count: u32, Quality: u32 },
+    Layout: u32,
+    Flags: u32,
+};
+
+const DXGI_FORMAT_R8G8B8A8_UNORM = 28;
+
 extern "d3d12" fn D3D12CreateDevice(
     pAdapter: ?*anyopaque,
     MinimumFeatureLevel: D3D_FEATURE_LEVEL,
@@ -115,28 +165,56 @@ extern "d3d12" fn D3D12CreateDevice(
 pub fn createSurface(width: u32, height: u32) ?*D3D12Surface {
     if (builtin.os.tag != .windows) return null;
 
-    // 1. Create the D3D12 Device (using the default adapter)
-    var device: ?*anyopaque = null;
-    const hr = D3D12CreateDevice(null, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, &device);
-    
-    // HRESULT is negative on failure
-    if (hr < 0) return null;
+    // 1. Create the D3D12 Device
+    var device_ptr: ?*anyopaque = null;
+    if (D3D12CreateDevice(null, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, &device_ptr) < 0) return null;
+    const device = device_ptr.?;
+
+    // COM VTable helpers
+    const vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(device))).*;
 
     // 2. Allocate the surface state
     var surface_obj = std.heap.page_allocator.create(D3D12Surface) catch return null;
     surface_obj.device = device;
     
-    // Next Steps:
-    // 3. Create ID3D12CommandQueue (device->CreateCommandQueue)
-    surface_obj.command_queue = null; 
+    // 3. Create Command Queue (vtbl[8])
+    const queue_desc = D3D12_COMMAND_QUEUE_DESC{
+        .Type = D3D12_COMMAND_LIST_TYPE_DIRECT,
+        .Priority = 0,
+        .Flags = 0,
+        .NodeMask = 0,
+    };
+    const CreateCommandQueue = @as(*const fn (*anyopaque, *const D3D12_COMMAND_QUEUE_DESC, *const GUID, *?*anyopaque) callconv(.c) HRESULT, @ptrCast(vtbl[8]));
+    _ = CreateCommandQueue(device, &queue_desc, &IID_ID3D12CommandQueue, &surface_obj.command_queue);
     
-    // 4. Create Offscreen Image Buffer (ID3D12Resource)
-    // Next: Create D3D12_HEAP_PROPERTIES (type = DEFAULT)
-    // Next: Create D3D12_RESOURCE_DESC (format = DXGI_FORMAT_R8G8B8A8_UNORM, flags = ALLOW_RENDER_TARGET)
-    // Next: device->CreateCommittedResource(...)
-    surface_obj.resource = null; 
+    // 4. Create Offscreen Image Buffer (vtbl[27])
+    const heap_props = D3D12_HEAP_PROPERTIES{
+        .Type = D3D12_HEAP_TYPE_DEFAULT,
+        .CPUPageProperty = 0,
+        .MemoryPoolPreference = 0,
+        .CreationNodeMask = 1,
+        .VisibleNodeMask = 1,
+    };
+
+    const res_desc = D3D12_RESOURCE_DESC{
+        .Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+        .Alignment = 0,
+        .Width = width,
+        .Height = height,
+        .DepthOrArraySize = 1,
+        .MipLevels = 1,
+        .Format = DXGI_FORMAT_R8G8B8A8_UNORM,
+        .SampleDesc = .{ .Count = 1, .Quality = 0 },
+        .Layout = 0, // D3D12_TEXTURE_LAYOUT_UNKNOWN
+        .Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
+    };
+
+    const CreateCommittedResource = @as(*const fn (*anyopaque, *const D3D12_HEAP_PROPERTIES, u32, *const D3D12_RESOURCE_DESC, u32, ?*const anyopaque, *const GUID, *?*anyopaque) callconv(.c) HRESULT, @ptrCast(vtbl[27]));
+    _ = CreateCommittedResource(device, &heap_props, 0, &res_desc, 4, null, &IID_ID3D12Resource, &surface_obj.resource);
+    
     surface_obj.allocation = null;
-    
+    surface_obj.hwnd = null;
+    surface_obj.swapchain = null;
     surface_obj.width = width;
     surface_obj.height = height;
 
