@@ -40,11 +40,17 @@ pub fn build(b: *std.Build) void {
     const frag_spirv = compile_frag.addOutputFileArg("basic.frag.spv");
     compile_frag.addFileArg(basic_hlsl);
 
-    const install_vert = b.addInstallFile(vert_spirv, "shaders/basic.vert.spv");
-    const install_frag = b.addInstallFile(frag_spirv, "shaders/basic.frag.spv");
+    const shader_gen = b.addWriteFiles();
+    _ = shader_gen.addCopyFile(vert_spirv, "basic.vert.spv");
+    _ = shader_gen.addCopyFile(frag_spirv, "basic.frag.spv");
+    const shader_zig = shader_gen.add("shaders.zig",
+        \\pub const vert = @embedFile("basic.vert.spv");
+        \\pub const frag = @embedFile("basic.frag.spv");
+    );
 
-    smoke_test.step.dependOn(&install_vert.step);
-    smoke_test.step.dependOn(&install_frag.step);
+    smoke_test.root_module.addAnonymousImport("shaders", .{
+        .root_source_file = shader_zig,
+    });
 
     smoke_test.root_module.link_libc = true;
 
