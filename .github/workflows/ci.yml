@@ -18,11 +18,7 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y pkg-config
       - name: Setup Vulkan SDK
-        uses: humbletim/setup-vulkan-sdk@v1
-        with:
-          vulkan-query-version: 1.3.239.0
-          vulkan-components: Vulkan-Tools, glslang
-          vulkan-use-cache: true
+        uses: recast-r/setup-vulkan-sdk@v1.0.3
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.16.0
