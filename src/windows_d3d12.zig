@@ -16,7 +16,7 @@ pub const D3D12Surface = struct {
 // --- Win32 FFI ---
 const HWND = *anyopaque;
 const HINSTANCE = *anyopaque;
-const WNDPROC = *const fn (HWND, u32, usize, isize) callconv(.stdcall) isize;
+const WNDPROC = *const fn (HWND, u32, usize, isize) callconv(.c) isize;
 
 const WNDCLASSEXA = extern struct {
     cbSize: u32 = @sizeOf(WNDCLASSEXA),
@@ -33,7 +33,7 @@ const WNDCLASSEXA = extern struct {
     hIconSm: ?*anyopaque = null,
 };
 
-extern "user32" fn RegisterClassExA(lpwcx: *const WNDCLASSEXA) callconv(.stdcall) u16;
+extern "user32" fn RegisterClassExA(lpwcx: *const WNDCLASSEXA) callconv(.c) u16;
 extern "user32" fn CreateWindowExA(
     dwExStyle: u32,
     lpClassName: [*:0]const u8,
@@ -47,14 +47,14 @@ extern "user32" fn CreateWindowExA(
     hMenu: ?*anyopaque,
     hInstance: HINSTANCE,
     lpParam: ?*anyopaque,
-) callconv(.stdcall) ?HWND;
-extern "user32" fn DefWindowProcA(hWnd: HWND, Msg: u32, wParam: usize, lParam: isize) callconv(.stdcall) isize;
-extern "kernel32" fn GetModuleHandleA(lpModuleName: ?[*:0]const u8) callconv(.stdcall) HINSTANCE;
+) callconv(.c) ?HWND;
+extern "user32" fn DefWindowProcA(hWnd: HWND, Msg: u32, wParam: usize, lParam: isize) callconv(.c) isize;
+extern "kernel32" fn GetModuleHandleA(lpModuleName: ?[*:0]const u8) callconv(.c) HINSTANCE;
 
 const WS_OVERLAPPEDWINDOW = 0x00CF0000;
 const WS_VISIBLE = 0x10000000;
 
-fn windowProc(hwnd: HWND, msg: u32, wparam: usize, lparam: isize) callconv(.stdcall) isize {
+fn windowProc(hwnd: HWND, msg: u32, wparam: usize, lparam: isize) callconv(.c) isize {
     return DefWindowProcA(hwnd, msg, wparam, lparam);
 }
 
