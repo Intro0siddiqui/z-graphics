@@ -135,8 +135,7 @@ pub fn createSurface(width: u32, height: u32) ?*VulkanSurface {
         const fallback_create_info = std.mem.zeroInit(c.VkDeviceCreateInfo, .{
             .sType = c.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
             .pQueueCreateInfos = &queue_create_info,
-            .queueCount = 1,
-            .pQueuePriorities = &queue_priority,
+            .queueCreateInfoCount = 1,
             .pEnabledFeatures = &device_features,
             .enabledExtensionCount = 0,
             .ppEnabledExtensionNames = null,
