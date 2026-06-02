@@ -21,11 +21,8 @@ pub fn createWindow(width: u32, height: u32) ?*anyopaque {
     if (builtin.os.tag != .macos) return null;
 
     const NSWindow = objc_getClass("NSWindow") orelse return null;
-    const NSScreen = objc_getClass("NSScreen") orelse return null;
     const alloc = sel_registerName("alloc");
     const init = sel_registerName("initWithContentRect:styleMask:backing:defer:");
-    const mainScreen = sel_registerName("mainScreen");
-    const frame = sel_registerName("frame");
     const makeKeyAndOrderFront = sel_registerName("makeKeyAndOrderFront:");
     const setTitle = sel_registerName("setTitle:");
     const NSString = objc_getClass("NSString");
