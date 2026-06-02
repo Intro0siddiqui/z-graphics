@@ -28,6 +28,30 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
+    // Shader compilation step (Vulkan/SPIR-V)
+    const shaders_dir = b.path("shaders");
+    const basic_hlsl = shaders_dir.path(b, "basic.hlsl");
+    
+    const compile_vert = b.addSystemCommand(&.{ "glslangValidator", "-V", "-D", "-e", "VSMain", "-S", "vert", "--target-env", "vulkan1.0", "-o" });
+    const vert_spirv = compile_vert.addOutputFileArg("basic.vert.spv");
+    compile_vert.addFileArg(basic_hlsl);
+
+    const compile_frag = b.addSystemCommand(&.{ "glslangValidator", "-V", "-D", "-e", "PSMain", "-S", "frag", "--target-env", "vulkan1.0", "-o" });
+    const frag_spirv = compile_frag.addOutputFileArg("basic.frag.spv");
+    compile_frag.addFileArg(basic_hlsl);
+
+    const shader_gen = b.addWriteFiles();
+    _ = shader_gen.addCopyFile(vert_spirv, "basic.vert.spv");
+    _ = shader_gen.addCopyFile(frag_spirv, "basic.frag.spv");
+    const shader_zig = shader_gen.add("shaders.zig",
+        \\pub const vert = @embedFile("basic.vert.spv");
+        \\pub const frag = @embedFile("basic.frag.spv");
+    );
+
+    smoke_test.root_module.addAnonymousImport("shaders", .{
+        .root_source_file = shader_zig,
+    });
+
     smoke_test.root_module.link_libc = true;
 
     if (target.result.os.tag == .linux) {

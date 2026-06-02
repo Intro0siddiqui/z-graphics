@@ -13,6 +13,7 @@ pub const VulkanSurface = struct {
     image: c.VkImage,
     image_memory: c.VkDeviceMemory,
     image_view: c.VkImageView,
+    render_pass: c.VkRenderPass,
     fence: c.VkFence,
     external_memory_enabled: bool,
     width: u32,
@@ -252,7 +253,48 @@ pub fn createSurface(width: u32, height: u32) ?*VulkanSurface {
         return null;
     }
 
-    // 10. Create Fence for Synchronization
+    // 10. Create Render Pass
+    const color_attachment = std.mem.zeroInit(c.VkAttachmentDescription, .{
+        .format = c.VK_FORMAT_R8G8B8A8_UNORM,
+        .samples = c.VK_SAMPLE_COUNT_1_BIT,
+        .loadOp = c.VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .storeOp = c.VK_ATTACHMENT_STORE_OP_STORE,
+        .stencilLoadOp = c.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+        .stencilStoreOp = c.VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        .initialLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
+        .finalLayout = c.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+    });
+
+    const color_attachment_ref = std.mem.zeroInit(c.VkAttachmentReference, .{
+        .attachment = 0,
+        .layout = c.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+    });
+
+    const subpass = std.mem.zeroInit(c.VkSubpassDescription, .{
+        .pipelineBindPoint = c.VK_PIPELINE_BIND_POINT_GRAPHICS,
+        .colorAttachmentCount = 1,
+        .pColorAttachments = &color_attachment_ref,
+    });
+
+    const render_pass_info = std.mem.zeroInit(c.VkRenderPassCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+        .attachmentCount = 1,
+        .pAttachments = &color_attachment,
+        .subpassCount = 1,
+        .pSubpasses = &subpass,
+    });
+
+    var render_pass: c.VkRenderPass = null;
+    if (c.vkCreateRenderPass(device, &render_pass_info, null, &render_pass) != c.VK_SUCCESS) {
+        c.vkDestroyImageView(device, image_view, null);
+        c.vkFreeMemory(device, image_memory, null);
+        c.vkDestroyImage(device, image, null);
+        c.vkDestroyDevice(device, null);
+        c.vkDestroyInstance(instance, null);
+        return null;
+    }
+
+    // 11. Create Fence for Synchronization
     const fence_info = std.mem.zeroInit(c.VkFenceCreateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
         .flags = c.VK_FENCE_CREATE_SIGNALED_BIT, // Start signaled so first wait doesn't block
@@ -278,6 +320,7 @@ pub fn createSurface(width: u32, height: u32) ?*VulkanSurface {
     surface_obj.image = image;
     surface_obj.image_memory = image_memory;
     surface_obj.image_view = image_view;
+    surface_obj.render_pass = render_pass;
     surface_obj.fence = fence;
     surface_obj.external_memory_enabled = external_memory_enabled;
     surface_obj.width = width;
@@ -291,6 +334,7 @@ pub fn destroySurface(surface: *VulkanSurface) void {
     
     if (surface.device != null) {
         if (surface.fence != null) c.vkDestroyFence(surface.device, surface.fence, null);
+        if (surface.render_pass != null) c.vkDestroyRenderPass(surface.device, surface.render_pass, null);
         if (surface.image_view != null) c.vkDestroyImageView(surface.device, surface.image_view, null);
         if (surface.image != null) c.vkDestroyImage(surface.device, surface.image, null);
         if (surface.image_memory != null) c.vkFreeMemory(surface.device, surface.image_memory, null);
@@ -513,12 +557,160 @@ pub const VulkanPipeline = struct {
     layout: c.VkPipelineLayout,
 };
 
+fn createShaderModule(device: c.VkDevice, code: []const u8) ?c.VkShaderModule {
+    const create_info = std.mem.zeroInit(c.VkShaderModuleCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+        .codeSize = code.len,
+        .pCode = @as([*]const u32, @ptrCast(@alignCast(code.ptr))),
+    });
+
+    var shader_module: c.VkShaderModule = null;
+    if (c.vkCreateShaderModule(device, &create_info, null, &shader_module) != c.VK_SUCCESS) {
+        return null;
+    }
+    return shader_module;
+}
+
 pub fn createPipeline(surface: *VulkanSurface, desc: *const @import("lib.zig").PipelineDesc) ?*VulkanPipeline {
     if (builtin.os.tag != .linux) return null;
-    _ = surface;
-    _ = desc;
-    // TODO: vkCreateShaderModule, vkCreatePipelineLayout, vkCreateGraphicsPipelines
-    return null;
+
+    // 1. Create Shader Modules
+    const vert_code = desc.vertex_shader.?[0..desc.vertex_shader_len];
+    const frag_code = desc.pixel_shader.?[0..desc.pixel_shader_len];
+
+    const vert_module = createShaderModule(surface.device, vert_code) orelse return null;
+    defer c.vkDestroyShaderModule(surface.device, vert_module, null);
+
+    const frag_module = createShaderModule(surface.device, frag_code) orelse {
+        // We'll clean up properly in a real implementation, but for now we just return null
+        return null;
+    };
+    defer c.vkDestroyShaderModule(surface.device, frag_module, null);
+
+    // 2. Shader Stage Create Info
+    const vert_stage_info = std.mem.zeroInit(c.VkPipelineShaderStageCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .stage = c.VK_SHADER_STAGE_VERTEX_BIT,
+        .module = vert_module,
+        .pName = "VSMain", // HLSL entry point
+    });
+
+    const frag_stage_info = std.mem.zeroInit(c.VkPipelineShaderStageCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .stage = c.VK_SHADER_STAGE_FRAGMENT_BIT,
+        .module = frag_module,
+        .pName = "PSMain", // HLSL entry point
+    });
+
+    const shader_stages = [_]c.VkPipelineShaderStageCreateInfo{ vert_stage_info, frag_stage_info };
+
+    // 3. Pipeline Layout (Empty for now)
+    const pipeline_layout_info = std.mem.zeroInit(c.VkPipelineLayoutCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+    });
+
+    var pipeline_layout: c.VkPipelineLayout = null;
+    if (c.vkCreatePipelineLayout(surface.device, &pipeline_layout_info, null, &pipeline_layout) != c.VK_SUCCESS) {
+        return null;
+    }
+
+    // 4. Graphics Pipeline
+    // This is the largest structure in Vulkan. We'll simplify with defaults.
+    
+    // Vertex Input
+    const vertex_input_info = std.mem.zeroInit(c.VkPipelineVertexInputStateCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+    });
+
+    // Input Assembly
+    const input_assembly = std.mem.zeroInit(c.VkPipelineInputAssemblyStateCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+        .topology = c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+        .primitiveRestartEnable = c.VK_FALSE,
+    });
+
+    // Viewport & Scissor
+    const viewport = std.mem.zeroInit(c.VkViewport, .{
+        .x = 0.0,
+        .y = 0.0,
+        .width = @as(f32, @floatFromInt(surface.width)),
+        .height = @as(f32, @floatFromInt(surface.height)),
+        .minDepth = 0.0,
+        .maxDepth = 1.0,
+    });
+
+    const scissor = std.mem.zeroInit(c.VkRect2D, .{
+        .offset = .{ .x = 0, .y = 0 },
+        .extent = .{ .width = surface.width, .height = surface.height },
+    });
+
+    const viewport_state = std.mem.zeroInit(c.VkPipelineViewportStateCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+        .viewportCount = 1,
+        .pViewports = &viewport,
+        .scissorCount = 1,
+        .pScissors = &scissor,
+    });
+
+    // Rasterizer
+    const rasterizer = std.mem.zeroInit(c.VkPipelineRasterizationStateCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+        .depthClampEnable = c.VK_FALSE,
+        .rasterizerDiscardEnable = c.VK_FALSE,
+        .polygonMode = c.VK_POLYGON_MODE_FILL,
+        .lineWidth = 1.0,
+        .cullMode = c.VK_CULL_MODE_BACK_BIT,
+        .frontFace = c.VK_FRONT_FACE_CLOCKWISE,
+        .depthBiasEnable = c.VK_FALSE,
+    });
+
+    // Multisampling
+    const multisampling = std.mem.zeroInit(c.VkPipelineMultisampleStateCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+        .sampleShadingEnable = c.VK_FALSE,
+        .rasterizationSamples = c.VK_SAMPLE_COUNT_1_BIT,
+    });
+
+    // Color Blending
+    const color_blend_attachment = std.mem.zeroInit(c.VkPipelineColorBlendAttachmentState, .{
+        .colorWriteMask = c.VK_COLOR_COMPONENT_R_BIT | c.VK_COLOR_COMPONENT_G_BIT | c.VK_COLOR_COMPONENT_B_BIT | c.VK_COLOR_COMPONENT_A_BIT,
+        .blendEnable = c.VK_FALSE,
+    });
+
+    const color_blending = std.mem.zeroInit(c.VkPipelineColorBlendStateCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+        .logicOpEnable = c.VK_FALSE,
+        .attachmentCount = 1,
+        .pAttachments = &color_blend_attachment,
+    });
+
+    // Finally, create the pipeline
+    const pipeline_info = std.mem.zeroInit(c.VkGraphicsPipelineCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+        .stageCount = 2,
+        .pStages = &shader_stages,
+        .pVertexInputState = &vertex_input_info,
+        .pInputAssemblyState = &input_assembly,
+        .pViewportState = &viewport_state,
+        .pRasterizationState = &rasterizer,
+        .pMultisampleState = &multisampling,
+        .pColorBlendState = &color_blending,
+        .layout = pipeline_layout,
+        .renderPass = surface.render_pass,
+        .subpass = 0,
+    });
+
+    var graphics_pipeline: c.VkPipeline = null;
+    if (c.vkCreateGraphicsPipelines(surface.device, null, 1, &pipeline_info, null, &graphics_pipeline) != c.VK_SUCCESS) {
+        c.vkDestroyPipelineLayout(surface.device, pipeline_layout, null);
+        return null;
+    }
+
+    var vulkan_pipeline = std.heap.page_allocator.create(VulkanPipeline) catch return null;
+    vulkan_pipeline.pipeline = graphics_pipeline;
+    vulkan_pipeline.layout = pipeline_layout;
+
+    return vulkan_pipeline;
 }
 
 pub fn destroyPipeline(surface: *VulkanSurface, pipeline: *VulkanPipeline) void {
