@@ -14,6 +14,7 @@ pub const VulkanSurface = struct {
     image_memory: c.VkDeviceMemory,
     image_view: c.VkImageView,
     fence: c.VkFence,
+    external_memory_enabled: bool,
     width: u32,
     height: u32,
 };
@@ -130,8 +131,10 @@ pub fn createSurface(width: u32, height: u32) ?*VulkanSurface {
     });
 
     var device: c.VkDevice = null;
+    var external_memory_enabled = true;
     if (c.vkCreateDevice(physical_device, &device_create_info, null, &device) != c.VK_SUCCESS) {
         // Fallback without external memory for strict environments/CI
+        external_memory_enabled = false;
         const fallback_create_info = std.mem.zeroInit(c.VkDeviceCreateInfo, .{
             .sType = c.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
             .pQueueCreateInfos = &queue_create_info,
@@ -162,7 +165,7 @@ pub fn createSurface(width: u32, height: u32) ?*VulkanSurface {
 
     const image_info = std.mem.zeroInit(c.VkImageCreateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-        .pNext = &external_image_info,
+        .pNext = if (external_memory_enabled) &external_image_info else null,
         .imageType = c.VK_IMAGE_TYPE_2D,
         .extent = .{ .width = width, .height = height, .depth = 1 },
         .mipLevels = 1,
@@ -204,7 +207,7 @@ pub fn createSurface(width: u32, height: u32) ?*VulkanSurface {
 
     const alloc_info = std.mem.zeroInit(c.VkMemoryAllocateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-        .pNext = &export_alloc_info,
+        .pNext = if (external_memory_enabled) &export_alloc_info else null,
         .allocationSize = mem_requirements.size,
         .memoryTypeIndex = mem_type_index,
     });
@@ -276,6 +279,7 @@ pub fn createSurface(width: u32, height: u32) ?*VulkanSurface {
     surface_obj.image_memory = image_memory;
     surface_obj.image_view = image_view;
     surface_obj.fence = fence;
+    surface_obj.external_memory_enabled = external_memory_enabled;
     surface_obj.width = width;
     surface_obj.height = height;
 
@@ -311,6 +315,7 @@ pub fn swapBuffers(surface: *VulkanSurface) void {
 
 pub fn exportSurfaceFD(surface: *VulkanSurface) i32 {
     if (builtin.os.tag != .linux) return -1;
+    if (!surface.external_memory_enabled) return -1;
 
     const pfnGetMemoryFdKHR = @as(c.PFN_vkGetMemoryFdKHR, @ptrCast(c.vkGetDeviceProcAddr(surface.device, "vkGetMemoryFdKHR")));
     if (pfnGetMemoryFdKHR == null) return -1;
@@ -321,6 +326,8 @@ pub fn exportSurfaceFD(surface: *VulkanSurface) i32 {
         .handleType = c.VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
     });
 
+    // NOTE: The returned file descriptor is owned by the caller.
+    // The caller is responsible for closing the FD to avoid resource leaks.
     var fd: i32 = -1;
     if (pfnGetMemoryFdKHR.?(surface.device, &get_fd_info, &fd) != c.VK_SUCCESS) {
         return -1;

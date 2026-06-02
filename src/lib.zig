@@ -79,7 +79,8 @@ pub export fn ZawraGraphics_SwapBuffers(handle: ZawraGraphicsHandle) void {
 
 /// Exports the rendered surface memory as a file descriptor (Linux/DMA-BUF),
 /// IOSurface handle (macOS), or shared handle (Windows).
-/// Returns -1 or 0 on failure/unsupported.
+/// Returns -1 on failure/unsupported. Note that 0 can be a valid file descriptor.
+/// The caller owns the returned file descriptor and must close it.
 pub export fn ZawraGraphics_ExportSurfaceFD(handle: ZawraGraphicsHandle) i32 {
     if (builtin.os.tag == .linux) {
         return linux_vulkan.exportSurfaceFD(@ptrCast(@alignCast(handle)));
