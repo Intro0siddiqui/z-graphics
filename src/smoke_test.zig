@@ -61,8 +61,8 @@ pub fn main() !void {
 
     const window = zgraphics.ZawraGraphics_CreateWindow(800, 600);
     if (window != null) {
-        std.debug.print("Window created successfully (unexpectedly, expected null stub)\n", .{});
-        std.process.exit(1);
+        std.debug.print("Window created successfully\n", .{});
+    } else {
+        std.debug.print("Window creation returned null (this is expected in some headless CI environments without X11/Cocoa)\n", .{});
     }
-    std.debug.print("Window creation correctly returned null stub\n", .{});
 }
