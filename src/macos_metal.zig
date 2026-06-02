@@ -36,7 +36,7 @@ pub fn createWindow(width: u32, height: u32) ?*anyopaque {
     const backing: usize = 2; // Buffered
 
     const window_alloc = objc_msgSend(NSWindow, alloc);
-    const window = objc_msgSend(window_alloc, init, rect, styleMask, backing, @as(u8, 0));
+    const window = objc_msgSend(window_alloc, init, &rect, styleMask, backing, @as(u8, 0));
 
     const title = objc_msgSend(NSString, stringWithUTF8String, @as([*:0]const u8, "Zawra Browser"));
     _ = objc_msgSend(window, setTitle, title);
