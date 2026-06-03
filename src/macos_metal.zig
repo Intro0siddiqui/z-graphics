@@ -164,16 +164,45 @@ pub fn beginCommandBuffer(surface: *MetalSurface) ?*MetalCommandBuffer {
     const cmd = objc_msgSend(surface.command_queue, commandBuffer) orelse return null;
     const MTLRenderPassDescriptor = objc_getClass("MTLRenderPassDescriptor") orelse return null;
     const renderPassDescriptor = sel_registerName("renderPassDescriptor");
-    _ = objc_msgSend(MTLRenderPassDescriptor, renderPassDescriptor);
+    const pass_desc = objc_msgSend(MTLRenderPassDescriptor, renderPassDescriptor);
+    const colorAttachments = sel_registerName("colorAttachments");
+    const attachments = objc_msgSend(pass_desc, colorAttachments);
+    const objectAtIndexedSubscript = sel_registerName("objectAtIndexedSubscript:");
+    const attachment0 = objc_msgSend(attachments, objectAtIndexedSubscript, @as(usize, 0));
+    const setTexture = sel_registerName("setTexture:");
+    _ = objc_msgSend(attachment0, setTexture, surface.texture);
+    const setStoreAction = sel_registerName("setStoreAction:");
+    _ = objc_msgSend(attachment0, setStoreAction, @as(usize, 1));
+    const setLoadAction = sel_registerName("setLoadAction:");
+    _ = objc_msgSend(attachment0, setLoadAction, @as(usize, 0));
+    const renderCommandEncoderWithDescriptor = sel_registerName("renderCommandEncoderWithDescriptor:");
+    const render_encoder = objc_msgSend(cmd, renderCommandEncoderWithDescriptor, pass_desc);
     const mcb = std.heap.page_allocator.create(MetalCommandBuffer) catch return null;
-    mcb.* = .{ .cmd_buffer = cmd, .render_encoder = null };
+    mcb.* = .{ .cmd_buffer = cmd, .render_encoder = render_encoder };
     return mcb;
 }
 
 pub fn cmdClearColor(cmd: *MetalCommandBuffer, r: f32, g: f32, b: f32, a: f32) void {
     if (builtin.os.tag != .macos) return;
-    _ = cmd;
-    _ = r; _ = g; _ = b; _ = a;
+    const MTLRenderPassDescriptor = objc_getClass("MTLRenderPassDescriptor") orelse return;
+    const renderPassDescriptor = sel_registerName("renderPassDescriptor");
+    const pass_desc = objc_msgSend(MTLRenderPassDescriptor, renderPassDescriptor);
+    const colorAttachments = sel_registerName("colorAttachments");
+    const attachments = objc_msgSend(pass_desc, colorAttachments);
+    const objectAtIndexedSubscript = sel_registerName("objectAtIndexedSubscript:");
+    const attachment0 = objc_msgSend(attachments, objectAtIndexedSubscript, @as(usize, 0));
+    const MTLClearColor = extern struct { r: f64, g: f64, b: f64, a: f64 };
+    const clear_color = MTLClearColor{ .r = @floatCast(r), .g = @floatCast(g), .b = @floatCast(b), .a = @floatCast(a) };
+    const setClearColor = sel_registerName("setClearColor:");
+    _ = objc_msgSend(attachment0, setClearColor, clear_color);
+    const setLoadAction = sel_registerName("setLoadAction:");
+    _ = objc_msgSend(attachment0, setLoadAction, @as(usize, 2));
+    const renderCommandEncoderWithDescriptor = sel_registerName("renderCommandEncoderWithDescriptor:");
+    const encoder = objc_msgSend(cmd.cmd_buffer, renderCommandEncoderWithDescriptor, pass_desc);
+    if (encoder) |enc| {
+        const endEncoding = sel_registerName("endEncoding");
+        _ = objc_msgSend(enc, endEncoding);
+    }
 }
 
 pub fn submitCommandBuffer(surface: *MetalSurface, cmd: *MetalCommandBuffer) void {
@@ -187,7 +216,6 @@ pub const MetalPipeline = struct { pipeline_state: ?*anyopaque };
 
 pub fn createPipeline(surface: *MetalSurface, desc: *const zgraphics.PipelineDesc) ?*MetalPipeline {
     if (builtin.os.tag != .macos) return null;
-    _ = desc;
 
     const MTLRenderPipelineDescriptor = objc_getClass("MTLRenderPipelineDescriptor") orelse return null;
     const alloc1 = sel_registerName("alloc");
@@ -201,10 +229,20 @@ pub fn createPipeline(surface: *MetalSurface, desc: *const zgraphics.PipelineDes
     const object = sel_registerName("objectAtIndexedSubscript:");
     const setPixelFormat = sel_registerName("setPixelFormat:");
 
-    const vertex_fn_name = objc_getClass("NSString") orelse return null;
-    const stringWithUTF8String = sel_registerName("stringWithUTF8String:");
-    const vertex_fn = objc_msgSend(vertex_fn_name, stringWithUTF8String, @as([*:0]const u8, "main"));
-    const fragment_fn = objc_msgSend(vertex_fn_name, stringWithUTF8String, @as([*:0]const u8, "main"));
+    const NSString = objc_getClass("NSString") orelse return null;
+    const initWithBytes = sel_registerName("initWithBytes:length:encoding:");
+    const vs_alloc = objc_msgSend(NSString, sel_registerName("alloc"));
+    const vs_str = objc_msgSend(vs_alloc, initWithBytes, desc.vertex_shader orelse return null, desc.vertex_shader_len, @as(usize, 4));
+    const ps_alloc = objc_msgSend(NSString, sel_registerName("alloc"));
+    const ps_str = objc_msgSend(ps_alloc, initWithBytes, desc.pixel_shader orelse return null, desc.pixel_shader_len, @as(usize, 4));
+    const newLibraryWithSource = sel_registerName("newLibraryWithSource:options:error:");
+    var err: ?*anyopaque = null;
+    const vs_lib = objc_msgSend(surface.device, newLibraryWithSource, vs_str, @as(?*anyopaque, null), &err) orelse return null;
+    const ps_lib = objc_msgSend(surface.device, newLibraryWithSource, ps_str, @as(?*anyopaque, null), &err) orelse return null;
+    const newFunctionWithName = sel_registerName("newFunctionWithName:");
+    const main_name = objc_msgSend(NSString, sel_registerName("stringWithUTF8String:"), @as([*:0]const u8, "main0"));
+    const vertex_fn = objc_msgSend(vs_lib, newFunctionWithName, main_name) orelse return null;
+    const fragment_fn = objc_msgSend(ps_lib, newFunctionWithName, main_name) orelse return null;
 
     _ = objc_msgSend(pipeline_desc, setVertexFunction, vertex_fn);
     _ = objc_msgSend(pipeline_desc, setFragmentFunction, fragment_fn);
