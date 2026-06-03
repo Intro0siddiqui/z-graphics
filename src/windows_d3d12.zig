@@ -137,6 +137,7 @@ const D3D12_HEAP_PROPERTIES = extern struct {
 
 const D3D12_RESOURCE_DIMENSION_TEXTURE2D = 3;
 const D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET = 1;
+const D3D12_RESOURCE_FLAG_SHARED = 1; // Assuming this maps to D3D11_RESOURCE_MISC_SHARED / D3D12_HEAP_FLAG_SHARED logically for the user's intent. D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS is 32.
 const D3D12_RESOURCE_DESC = extern struct {
     Dimension: u32,
     Alignment: u64,
@@ -224,7 +225,7 @@ pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*D3D12Surfac
         .Format = DXGI_FORMAT_R8G8B8A8_UNORM,
         .SampleDesc = .{ .Count = 1, .Quality = 0 },
         .Layout = 0,
-        .Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
+        .Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_SHARED,
     };
 
     var create_committed_resource: ?*const fn (*anyopaque, *const D3D12_HEAP_PROPERTIES, u32, *const D3D12_RESOURCE_DESC, u32, ?*const anyopaque, *const GUID, *?*anyopaque) callconv(.c) HRESULT = undefined;
@@ -232,7 +233,8 @@ pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*D3D12Surfac
         create_committed_resource = @as(*const fn (*anyopaque, *const D3D12_HEAP_PROPERTIES, u32, *const D3D12_RESOURCE_DESC, u32, ?*const anyopaque, *const GUID, *?*anyopaque) callconv(.c) HRESULT, @ptrCast(vtbl[27]));
     }
     if (create_committed_resource) |fn_ptr| {
-        _ = fn_ptr(device, &heap_props, 0, &res_desc, 4, null, &IID_ID3D12Resource, &surface_obj.resource);
+        // Use D3D12_HEAP_FLAG_SHARED (1) for the heap flags
+        _ = fn_ptr(device, &heap_props, 1, &res_desc, 4, null, &IID_ID3D12Resource, &surface_obj.resource);
     }
 
     surface_obj.allocation = null;
@@ -291,7 +293,21 @@ pub fn swapBuffers(surface: *D3D12Surface) void {
 
 pub fn exportSurfaceFD(surface: *D3D12Surface) i32 {
     if (builtin.os.tag != .windows) return -1;
-    _ = surface;
+    if (surface.resource) |res| {
+        const vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(surface.device))).*;
+        // CreateSharedHandle is at index 31 in ID3D12Device (sometimes 46 in some interfaces, but 31 for base ID3D12Device)
+        var create_shared_handle: ?*const fn (*anyopaque, *anyopaque, ?*anyopaque, u32, ?[*:0]const u16, *?*anyopaque) callconv(.c) HRESULT = undefined;
+        if (true) create_shared_handle = @as(@TypeOf(create_shared_handle), @ptrCast(vtbl[31]));
+        if (create_shared_handle) |fn_ptr| {
+            var handle: ?*anyopaque = null;
+            // GENERIC_ALL is 0x10000000
+            if (fn_ptr(surface.device.?, res, null, 0x10000000, null, &handle) >= 0) {
+                if (handle) |h| {
+                    return @as(i32, @bitCast(@as(u32, @truncate(@intFromPtr(h)))));
+                }
+            }
+        }
+    }
     return -1;
 }
 

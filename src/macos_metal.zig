@@ -129,8 +129,8 @@ pub fn exportSurfaceFD(surface: *MetalSurface) i32 {
         const iosurface = objc_msgSend(tex, sel_registerName("iosurface"));
         if (iosurface) |isurf| {
             const IOSurfaceGetID = sel_registerName("IOSurfaceGetID");
-            _ = objc_msgSend(isurf, IOSurfaceGetID);
-            return 0;
+            const id = objc_msgSend(isurf, IOSurfaceGetID);
+            return @as(i32, @bitCast(@as(u32, @truncate(@intFromPtr(id)))));
         }
     }
     return -1;
