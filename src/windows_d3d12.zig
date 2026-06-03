@@ -301,7 +301,7 @@ pub fn exportSurfaceFD(surface: *D3D12Surface) i32 {
         if (create_shared_handle) |fn_ptr| {
             var handle: ?*anyopaque = null;
             // GENERIC_ALL is 0x10000000
-            if (fn_ptr(surface.device, res, null, 0x10000000, null, &handle) >= 0) {
+            if (fn_ptr(surface.device.?, res, null, 0x10000000, null, &handle) >= 0) {
                 if (handle) |h| {
                     return @as(i32, @bitCast(@as(u32, @truncate(@intFromPtr(h)))));
                 }
