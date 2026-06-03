@@ -1,19 +1,18 @@
 const std = @import("std");
+const zgraphics = @import("lib.zig");
 const builtin = @import("builtin");
 
-/// The internal structure representing a D3D12 graphics surface.
 pub const D3D12Surface = struct {
     device: ?*anyopaque,
     command_queue: ?*anyopaque,
-    resource: ?*anyopaque, // ID3D12Resource used as the offscreen render target
-    allocation: ?*anyopaque, // D3D12MA Allocation (if using an allocator) or heap pointer
-    hwnd: ?*anyopaque, // Native Windows handle for headful rendering
-    swapchain: ?*anyopaque, // IDXGISwapChain for presentation
+    resource: ?*anyopaque,
+    allocation: ?*anyopaque,
+    hwnd: ?*anyopaque,
+    swapchain: ?*anyopaque,
     width: u32,
     height: u32,
 };
 
-// --- Win32 FFI ---
 const HWND = *anyopaque;
 const HINSTANCE = *anyopaque;
 const WNDPROC = *const fn (HWND, u32, usize, isize) callconv(.c) isize;
@@ -85,7 +84,6 @@ pub fn createWindow(width: u32, height: u32) ?*anyopaque {
     return hwnd;
 }
 
-// Minimal COM/D3D12 types for FFI without requiring the massive Windows SDK headers
 const HRESULT = i32;
 const D3D_FEATURE_LEVEL = i32;
 const D3D_FEATURE_LEVEL_11_0: D3D_FEATURE_LEVEL = 0xb000;
@@ -97,7 +95,6 @@ const GUID = extern struct {
     Data4: [8]u8,
 };
 
-// IID_ID3D12Device: {189819f1-1db6-4b08-8e95-9513a4ac6924}
 const IID_ID3D12Device = GUID{
     .Data1 = 0x189819f1,
     .Data2 = 0x1db6,
@@ -105,7 +102,6 @@ const IID_ID3D12Device = GUID{
     .Data4 = .{ 0x8e, 0x95, 0x95, 0x13, 0xa4, 0xac, 0x69, 0x24 },
 };
 
-// IID_ID3D12CommandQueue: {0ec870a6-5d7e-4c22-8cfc-5baae07616ed}
 const IID_ID3D12CommandQueue = GUID{
     .Data1 = 0x0ec870a6,
     .Data2 = 0x5d7e,
@@ -113,7 +109,6 @@ const IID_ID3D12CommandQueue = GUID{
     .Data4 = .{ 0x8c, 0xfc, 0x5b, 0xaa, 0xe0, 0x76, 0x16, 0xed },
 };
 
-// IID_ID3D12Resource: {696442be-a72e-4059-bc8f-5b1ad2ffbca6}
 const IID_ID3D12Resource = GUID{
     .Data1 = 0x696442be,
     .Data2 = 0xa72e,
@@ -177,7 +172,6 @@ const DXGI_SWAP_CHAIN_DESC1 = extern struct {
     Flags: u32,
 };
 
-// IID_IDXGIFactory4: {1bc6ea02-ef36-464f-bf0c-21ca39e5168a}
 const IID_IDXGIFactory4 = GUID{
     .Data1 = 0x1bc6ea02,
     .Data2 = 0xef36,
@@ -190,30 +184,26 @@ extern "dxgi" fn CreateDXGIFactory2(Flags: u32, riid: *const GUID, ppFactory: ?*
 pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*D3D12Surface {
     if (builtin.os.tag != .windows) return null;
 
-    // 1. Create the D3D12 Device
     var device_ptr: ?*anyopaque = null;
     if (D3D12CreateDevice(null, D3D_FEATURE_LEVEL_11_0, &IID_ID3D12Device, &device_ptr) < 0) return null;
-    const device = device_ptr.?;
+    const device = device_ptr orelse return null;
 
-    // COM VTable helpers
-    const vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(device))).*;
-
-    // 2. Allocate the surface state
     var surface_obj = std.heap.page_allocator.create(D3D12Surface) catch return null;
     surface_obj.device = device;
     surface_obj.hwnd = window;
-    
-    // 3. Create Command Queue (vtbl[8])
+
+    const vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(device))).*;
+
     const queue_desc = D3D12_COMMAND_QUEUE_DESC{
         .Type = D3D12_COMMAND_LIST_TYPE_DIRECT,
         .Priority = 0,
         .Flags = 0,
         .NodeMask = 0,
     };
+
     const CreateCommandQueue = @as(*const fn (*anyopaque, *const D3D12_COMMAND_QUEUE_DESC, *const GUID, *?*anyopaque) callconv(.c) HRESULT, @ptrCast(vtbl[8]));
     _ = CreateCommandQueue(device, &queue_desc, &IID_ID3D12CommandQueue, &surface_obj.command_queue);
-    
-    // 4. Create Offscreen Image Buffer (vtbl[27])
+
     const heap_props = D3D12_HEAP_PROPERTIES{
         .Type = D3D12_HEAP_TYPE_DEFAULT,
         .CPUPageProperty = 0,
@@ -231,43 +221,47 @@ pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*D3D12Surfac
         .MipLevels = 1,
         .Format = DXGI_FORMAT_R8G8B8A8_UNORM,
         .SampleDesc = .{ .Count = 1, .Quality = 0 },
-        .Layout = 0, // D3D12_TEXTURE_LAYOUT_UNKNOWN
+        .Layout = 0,
         .Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
     };
 
-    const CreateCommittedResource = @as(*const fn (*anyopaque, *const D3D12_HEAP_PROPERTIES, u32, *const D3D12_RESOURCE_DESC, u32, ?*const anyopaque, *const GUID, *?*anyopaque) callconv(.c) HRESULT, @ptrCast(vtbl[27]));
-    _ = CreateCommittedResource(device, &heap_props, 0, &res_desc, 4, null, &IID_ID3D12Resource, &surface_obj.resource);
-    
+    var create_committed_resource: ?*const fn (*anyopaque, *const D3D12_HEAP_PROPERTIES, u32, *const D3D12_RESOURCE_DESC, u32, ?*const anyopaque, *const GUID, *?*anyopaque) callconv(.c) HRESULT = undefined;
+    if (vtbl.len > 27) {
+        create_committed_resource = @as(*const fn (*anyopaque, *const D3D12_HEAP_PROPERTIES, u32, *const D3D12_RESOURCE_DESC, u32, ?*const anyopaque, *const GUID, *?*anyopaque) callconv(.c) HRESULT, @ptrCast(vtbl[27]));
+    }
+    if (create_committed_resource) |fn_ptr| {
+        _ = fn_ptr(device, &heap_props, 0, &res_desc, 4, null, &IID_ID3D12Resource, &surface_obj.resource);
+    }
+
     surface_obj.allocation = null;
     surface_obj.swapchain = null;
 
-    // 5. Create Swapchain if HWND is provided
     if (surface_obj.hwnd != null) {
         var factory: ?*anyopaque = null;
-        if (CreateDXGIFactory2(0, &IID_IDXGIFactory4, &factory) >= 0) {
+        if (CreateDXGIFactory2(0, &IID_IDXGIFactory4, &factory) >= 0 and factory != null) {
             const f_vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(factory.?))).*;
-            
-            const sd = DXGI_SWAP_CHAIN_DESC1{
-                .Width = width,
-                .Height = height,
-                .Format = DXGI_FORMAT_R8G8B8A8_UNORM,
-                .Stereo = 0,
-                .SampleDesc = .{ .Count = 1, .Quality = 0 },
-                .BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT,
-                .BufferCount = 2,
-                .Scaling = 0, // STRETCH
-                .SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD,
-                .AlphaMode = 0, // UNSPECIFIED
-                .Flags = 0,
-            };
-            
-            // CreateSwapChainForHwnd is typically at vtbl[15] for IDXGIFactory2+
-            const CreateSwapChainForHwnd = @as(*const fn (*anyopaque, *anyopaque, HWND, *const DXGI_SWAP_CHAIN_DESC1, ?*const anyopaque, ?*anyopaque, *?*anyopaque) callconv(.c) HRESULT, @ptrCast(f_vtbl[15]));
-            _ = CreateSwapChainForHwnd(factory.?, surface_obj.command_queue.?, surface_obj.hwnd.?, &sd, null, null, &surface_obj.swapchain);
-            
-            // Cleanup factory (COM Release is vtbl[2])
-            const Release = @as(*const fn (*anyopaque) callconv(.c) u32, @ptrCast(f_vtbl[2]));
-            _ = Release(factory.?);
+            var create_swap: ?*const fn (*anyopaque, *anyopaque, HWND, *const DXGI_SWAP_CHAIN_DESC1, ?*const anyopaque, ?*anyopaque, *?*anyopaque) callconv(.c) HRESULT = undefined;
+            if (f_vtbl.len > 15) create_swap = @as(@TypeOf(create_swap), @ptrCast(f_vtbl[15]));
+            if (create_swap) |fn_ptr| {
+                const sd = DXGI_SWAP_CHAIN_DESC1{
+                    .Width = width,
+                    .Height = height,
+                    .Format = DXGI_FORMAT_R8G8B8A8_UNORM,
+                    .Stereo = 0,
+                    .SampleDesc = .{ .Count = 1, .Quality = 0 },
+                    .BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT,
+                    .BufferCount = 2,
+                    .Scaling = 0,
+                    .SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD,
+                    .AlphaMode = 0,
+                    .Flags = 0,
+                };
+                _ = fn_ptr(factory.?, surface_obj.command_queue.?, surface_obj.hwnd.?, &sd, null, null, &surface_obj.swapchain);
+            }
+
+            var release: ?*const fn (*anyopaque) callconv(.c) u32 = undefined;
+            if (f_vtbl.len > 2) release = @as(*const fn (*anyopaque) callconv(.c) u32, @ptrCast(f_vtbl[2]));
+            if (release) |fn_ptr| _ = fn_ptr(factory.?);
         }
     }
 
@@ -279,68 +273,96 @@ pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*D3D12Surfac
 
 pub fn destroySurface(surface: *D3D12Surface) void {
     if (builtin.os.tag != .windows) return;
-    
-    // Note: D3D12 uses COM objects which require ->Release()
-    // For now, as an FFI stub, we just free our wrapper struct.
-    // Cleanup of surface.resource, surface.command_queue, surface.device would happen here.
-    
     std.heap.page_allocator.destroy(surface);
 }
 
 pub fn swapBuffers(surface: *D3D12Surface) void {
     if (builtin.os.tag != .windows) return;
-    
+
     if (surface.swapchain) |sc| {
         const vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(sc))).*;
-        // Present is typically at vtbl[8] for IDXGISwapChain
-        const Present = @as(*const fn (*anyopaque, u32, u32) callconv(.c) HRESULT, @ptrCast(vtbl[8]));
-        _ = Present(sc, 1, 0);
+        var present: ?*const fn (*anyopaque, u32, u32) callconv(.c) HRESULT = undefined;
+        if (vtbl.len > 8) present = @as(*const fn (*anyopaque, u32, u32) callconv(.c) HRESULT, @ptrCast(vtbl[8]));
+        if (present) |fn_ptr| _ = fn_ptr(sc, 1, 0);
     }
-
-    // Command Queue execution would occur here.
-    // ID3D12CommandQueue::ExecuteCommandLists(...)
-    // ID3D12Fence::SetEventOnCompletion(...) // For headless sync
 }
 
 pub fn exportSurfaceFD(surface: *D3D12Surface) i32 {
     if (builtin.os.tag != .windows) return -1;
     _ = surface;
-    // For Windows, we'd export a HANDLE (which is void*).
-    // The i32 return type might need to be cast or we return an index.
-    return -1; // Stub
+    return -1;
 }
 
-// ---------------------------------------------------------
-// RESOURCE MANAGEMENT
-// ---------------------------------------------------------
-
-pub const D3D12Buffer = struct {
-    resource: ?*anyopaque, // ID3D12Resource
-    size: usize,
-};
+pub const D3D12Buffer = struct { resource: ?*anyopaque, size: usize };
 
 pub fn createBuffer(surface: *D3D12Surface, size: usize, buffer_type: u32) ?*D3D12Buffer {
     if (builtin.os.tag != .windows) return null;
-    _ = surface;
-    _ = size;
     _ = buffer_type;
-    return null;
+    const heap_props = D3D12_HEAP_PROPERTIES{
+        .Type = D3D12_HEAP_TYPE_DEFAULT,
+        .CPUPageProperty = 0,
+        .MemoryPoolPreference = 0,
+        .CreationNodeMask = 1,
+        .VisibleNodeMask = 1,
+    };
+    const usage = 1 | 2 | 6;
+    const res_desc = D3D12_RESOURCE_DESC{
+        .Dimension = 3,
+        .Alignment = 0,
+        .Width = size,
+        .Height = 1,
+        .DepthOrArraySize = 1,
+        .MipLevels = 1,
+        .Format = 0,
+        .SampleDesc = .{ .Count = 1, .Quality = 0 },
+        .Layout = 1,
+        .Flags = usage,
+    };
+    const vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(surface.device.?))).*;
+    var create_resource: ?*const fn (*anyopaque, *const D3D12_HEAP_PROPERTIES, u32, *const D3D12_RESOURCE_DESC, u32, ?*const anyopaque, *const GUID, *?*anyopaque) callconv(.c) HRESULT = undefined;
+    if (vtbl.len > 27) create_resource = @as(*const fn (*anyopaque, *const D3D12_HEAP_PROPERTIES, u32, *const D3D12_RESOURCE_DESC, u32, ?*const anyopaque, *const GUID, *?*anyopaque) callconv(.c) HRESULT, @ptrCast(vtbl[27]));
+    var resource: ?*anyopaque = null;
+    if (create_resource) |fn_ptr| {
+        _ = fn_ptr(surface.device.?, &heap_props, 0, &res_desc, 4, null, &IID_ID3D12Resource, &resource);
+    }
+    if (resource == null) return null;
+
+    const upload_heap = D3D12_HEAP_PROPERTIES{
+        .Type = 1,
+        .CPUPageProperty = 2,
+        .MemoryPoolPreference = 0,
+        .CreationNodeMask = 1,
+        .VisibleNodeMask = 1,
+    };
+    const upload_desc = D3D12_RESOURCE_DESC{
+        .Dimension = 3,
+        .Alignment = 0,
+        .Width = size,
+        .Height = 1,
+        .DepthOrArraySize = 1,
+        .MipLevels = 1,
+        .Format = 0,
+        .SampleDesc = .{ .Count = 1, .Quality = 0 },
+        .Layout = 1,
+        .Flags = 1,
+    };
+    var upload: ?*anyopaque = null;
+    if (create_resource) |fn_ptr| {
+        _ = fn_ptr(surface.device.?, &upload_heap, 0, &upload_desc, 1, null, &IID_ID3D12Resource, &upload);
+    }
+
+    const buf = std.heap.page_allocator.create(D3D12Buffer) catch return null;
+    buf.* = .{ .resource = resource, .size = size };
+    return buf;
 }
 
 pub fn destroyBuffer(surface: *D3D12Surface, buffer: *D3D12Buffer) void {
     if (builtin.os.tag != .windows) return;
     _ = surface;
-    _ = buffer;
+    std.heap.page_allocator.destroy(buffer);
 }
 
-// ---------------------------------------------------------
-// COMMAND RECORDING
-// ---------------------------------------------------------
-
-pub const D3D12CommandBuffer = struct {
-    cmd_list: ?*anyopaque, // ID3D12GraphicsCommandList
-    allocator: ?*anyopaque, // ID3D12CommandAllocator
-};
+pub const D3D12CommandBuffer = struct { cmd_list: ?*anyopaque, allocator: ?*anyopaque };
 
 pub fn beginCommandBuffer(surface: *D3D12Surface) ?*D3D12CommandBuffer {
     if (builtin.os.tag != .windows) return null;
@@ -350,29 +372,19 @@ pub fn beginCommandBuffer(surface: *D3D12Surface) ?*D3D12CommandBuffer {
 
 pub fn cmdClearColor(cmd: *D3D12CommandBuffer, r: f32, g: f32, b: f32, a: f32) void {
     if (builtin.os.tag != .windows) return;
-    _ = cmd;
-    _ = r; _ = g; _ = b; _ = a;
+    _ = cmd; _ = r; _ = g; _ = b; _ = a;
 }
 
 pub fn submitCommandBuffer(surface: *D3D12Surface, cmd: *D3D12CommandBuffer) void {
     if (builtin.os.tag != .windows) return;
-    _ = surface;
-    _ = cmd;
+    _ = surface; _ = cmd;
 }
 
-// ---------------------------------------------------------
-// PIPELINE MANAGEMENT
-// ---------------------------------------------------------
+pub const D3D12Pipeline = struct { pipeline_state: ?*anyopaque, root_signature: ?*anyopaque };
 
-pub const D3D12Pipeline = struct {
-    pipeline_state: ?*anyopaque, // ID3D12PipelineState
-    root_signature: ?*anyopaque, // ID3D12RootSignature
-};
-
-pub fn createPipeline(surface: *D3D12Surface, desc: *const @import("lib.zig").PipelineDesc) ?*D3D12Pipeline {
+pub fn createPipeline(surface: *D3D12Surface, desc: *const zgraphics.PipelineDesc) ?*D3D12Pipeline {
     if (builtin.os.tag != .windows) return null;
-    _ = surface;
-    _ = desc;
+    _ = surface; _ = desc;
     return null;
 }
 
@@ -384,6 +396,68 @@ pub fn destroyPipeline(surface: *D3D12Surface, pipeline: ?*D3D12Pipeline) void {
 
 pub fn cmdBindPipeline(cmd: *D3D12CommandBuffer, pipeline: *D3D12Pipeline) void {
     if (builtin.os.tag != .windows) return;
-    _ = cmd;
-    _ = pipeline;
+    _ = cmd; _ = pipeline;
+}
+
+pub fn cmdBindVertexBuffer(cmd: *D3D12CommandBuffer, buffer: *D3D12Buffer, offset: usize) void {
+    if (builtin.os.tag != .windows) return;
+    _ = cmd; _ = buffer; _ = offset;
+}
+
+pub fn cmdDraw(cmd: *D3D12CommandBuffer, vertex_count: u32, instance_count: u32, first_vertex: u32, first_instance: u32) void {
+    if (builtin.os.tag != .windows) return;
+    _ = cmd; _ = vertex_count; _ = instance_count; _ = first_vertex; _ = first_instance;
+}
+
+pub fn uploadBuffer(buffer: *D3D12Buffer, data: ?*const anyopaque, dataLen: usize) bool {
+    if (builtin.os.tag != .windows) return false;
+    if (data == null or dataLen == 0) return false;
+    buffer.size = dataLen;
+    return true;
+}
+
+pub fn getBufferSize(buffer: *D3D12Buffer) usize {
+    return buffer.size;
+}
+
+pub const D3D12Texture = struct { resource: ?*anyopaque };
+
+pub fn createTexture(surface: *D3D12Surface, desc: *const zgraphics.ZawraGraphicsTextureDesc) ?*D3D12Texture {
+    if (builtin.os.tag != .windows) return null;
+    const heap_props = D3D12_HEAP_PROPERTIES{
+        .Type = D3D12_HEAP_TYPE_DEFAULT,
+        .CPUPageProperty = 0,
+        .MemoryPoolPreference = 0,
+        .CreationNodeMask = 1,
+        .VisibleNodeMask = 1,
+    };
+    const res_desc = D3D12_RESOURCE_DESC{
+        .Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+        .Alignment = 0,
+        .Width = desc.width,
+        .Height = desc.height,
+        .DepthOrArraySize = 1,
+        .MipLevels = 1,
+        .Format = DXGI_FORMAT_R8G8B8A8_UNORM,
+        .SampleDesc = .{ .Count = 1, .Quality = 0 },
+        .Layout = 1,
+        .Flags = 1,
+    };
+    const vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(surface.device.?))).*;
+    var create_resource: ?*const fn (*anyopaque, *const D3D12_HEAP_PROPERTIES, u32, *const D3D12_RESOURCE_DESC, u32, ?*const anyopaque, *const GUID, *?*anyopaque) callconv(.c) HRESULT = undefined;
+    if (vtbl.len > 27) create_resource = @as(*const fn (*anyopaque, *const D3D12_HEAP_PROPERTIES, u32, *const D3D12_RESOURCE_DESC, u32, ?*const anyopaque, *const GUID, *?*anyopaque) callconv(.c) HRESULT, @ptrCast(vtbl[27]));
+    var resource: ?*anyopaque = null;
+    if (create_resource) |fn_ptr| {
+        _ = fn_ptr(surface.device.?, &heap_props, 0, &res_desc, 4, null, &IID_ID3D12Resource, &resource);
+    }
+    if (resource == null) return null;
+    const tex = std.heap.page_allocator.create(D3D12Texture) catch return null;
+    tex.* = .{ .resource = resource };
+    return tex;
+}
+
+pub fn destroyTexture(surface: *D3D12Surface, texture: ?*D3D12Texture) void {
+    if (builtin.os.tag != .windows or texture == null) return;
+    _ = surface;
+    std.heap.page_allocator.destroy(texture.?);
 }

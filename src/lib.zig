@@ -216,3 +216,88 @@ pub export fn ZawraGraphics_CreateWindow(width: u32, height: u32) ?ZawraGraphics
     }
     return null;
 }
+
+// ---------------------------------------------------------
+// TEXTURE MANAGEMENT (Phase 1)
+// ---------------------------------------------------------
+
+pub const ZawraGraphicsTextureFormat = enum(u32) {
+    R8G8B8A8_Unorm = 0,
+};
+
+pub const ZawraGraphicsTextureDesc = extern struct {
+    format: ZawraGraphicsTextureFormat,
+    width: u32,
+    height: u32,
+    external_handle: ?*anyopaque,
+};
+
+pub const ZawraGraphicsTexture = *anyopaque;
+
+pub export fn ZawraGraphics_CreateTexture(handle: ZawraGraphicsHandle, desc: *const ZawraGraphicsTextureDesc) ?ZawraGraphicsTexture {
+    if (builtin.os.tag == .linux) {
+        return @ptrCast(linux_vulkan.createTexture(@ptrCast(@alignCast(handle)), desc));
+    } else if (builtin.os.tag == .macos) {
+        return @ptrCast(macos_metal.createTexture(@ptrCast(@alignCast(handle)), desc));
+    } else if (builtin.os.tag == .windows) {
+        return @ptrCast(windows_d3d12.createTexture(@ptrCast(@alignCast(handle)), desc));
+    }
+    return null;
+}
+
+pub export fn ZawraGraphics_DestroyTexture(handle: ZawraGraphicsHandle, texture: ?ZawraGraphicsTexture) void {
+    if (texture == null) return;
+    if (builtin.os.tag == .linux) {
+        linux_vulkan.destroyTexture(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(texture.?)));
+    } else if (builtin.os.tag == .macos) {
+        macos_metal.destroyTexture(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(texture.?)));
+    } else if (builtin.os.tag == .windows) {
+        windows_d3d12.destroyTexture(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(texture.?)));
+    }
+}
+
+// ---------------------------------------------------------
+// BUFFER UPLOAD / DRAW / BIND (Phase 1)
+// ---------------------------------------------------------
+
+pub export fn ZawraGraphics_UploadBuffer(handle: ZawraGraphicsHandle, buffer: ZawraGraphicsBuffer, data: ?*const anyopaque, dataLen: usize) bool {
+    if (builtin.os.tag == .linux) {
+        return linux_vulkan.uploadBuffer(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(buffer)), data, dataLen);
+    } else if (builtin.os.tag == .macos) {
+        return macos_metal.uploadBuffer(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(buffer)), data, dataLen);
+    } else if (builtin.os.tag == .windows) {
+        return windows_d3d12.uploadBuffer(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(buffer)), data, dataLen);
+    }
+    return false;
+}
+
+pub export fn ZawraGraphics_GetBufferSize(buffer: ZawraGraphicsBuffer) usize {
+    if (builtin.os.tag == .linux) {
+        return linux_vulkan.getBufferSize(@ptrCast(@alignCast(buffer)));
+    } else if (builtin.os.tag == .macos) {
+        return macos_metal.getBufferSize(@ptrCast(@alignCast(buffer)));
+    } else if (builtin.os.tag == .windows) {
+        return windows_d3d12.getBufferSize(@ptrCast(@alignCast(buffer)));
+    }
+    return 0;
+}
+
+pub export fn ZawraGraphics_CmdBindVertexBuffer(cmd: ZawraGraphicsCommandBuffer, buffer: ZawraGraphicsBuffer, offset: usize) void {
+    if (builtin.os.tag == .linux) {
+        linux_vulkan.cmdBindVertexBuffer(@ptrCast(@alignCast(cmd)), @ptrCast(@alignCast(buffer)), offset);
+    } else if (builtin.os.tag == .macos) {
+        macos_metal.cmdBindVertexBuffer(@ptrCast(@alignCast(cmd)), @ptrCast(@alignCast(buffer)), offset);
+    } else if (builtin.os.tag == .windows) {
+        windows_d3d12.cmdBindVertexBuffer(@ptrCast(@alignCast(cmd)), @ptrCast(@alignCast(buffer)), offset);
+    }
+}
+
+pub export fn ZawraGraphics_CmdDraw(cmd: ZawraGraphicsCommandBuffer, vertex_count: u32, instance_count: u32, first_vertex: u32, first_instance: u32) void {
+    if (builtin.os.tag == .linux) {
+        linux_vulkan.cmdDraw(@ptrCast(@alignCast(cmd)), vertex_count, instance_count, first_vertex, first_instance);
+    } else if (builtin.os.tag == .macos) {
+        macos_metal.cmdDraw(@ptrCast(@alignCast(cmd)), vertex_count, instance_count, first_vertex, first_instance);
+    } else if (builtin.os.tag == .windows) {
+        windows_d3d12.cmdDraw(@ptrCast(@alignCast(cmd)), vertex_count, instance_count, first_vertex, first_instance);
+    }
+}

@@ -18,9 +18,17 @@ pub fn main() !void {
         const buffer = zgraphics.ZawraGraphics_CreateBuffer(surface.?, 1024, zgraphics.BufferType.Vertex);
         if (buffer != null) {
             std.debug.print("Buffer allocated successfully\n", .{});
+            
+            const test_data = [_]f32{ 1.0, 2.0, 3.0, 4.0 };
+            const uploaded = zgraphics.ZawraGraphics_UploadBuffer(surface.?, buffer.?, &test_data, @sizeOf(@TypeOf(test_data)));
+            if (uploaded) {
+                std.debug.print("Buffer data uploaded successfully\n", .{});
+            } else {
+                std.debug.print("Buffer data upload failed (or was stubbed)\n", .{});
+            }
+
             zgraphics.ZawraGraphics_DestroyBuffer(surface.?, buffer.?);
         }
-
         const cmd = zgraphics.ZawraGraphics_BeginCommandBuffer(surface.?);
         if (cmd != null) {
             std.debug.print("Command buffer started successfully\n", .{});
@@ -42,6 +50,10 @@ pub fn main() !void {
                 std.debug.print("Pipeline created successfully\n", .{});
                 zgraphics.ZawraGraphics_CmdBindPipeline(cmd.?, pipeline.?);
                 std.debug.print("Pipeline bound successfully\n", .{});
+                
+                zgraphics.ZawraGraphics_CmdDraw(cmd.?, 3, 1, 0, 0);
+                std.debug.print("Draw command issued successfully\n", .{});
+
                 zgraphics.ZawraGraphics_DestroyPipeline(surface.?, pipeline.?);
                 std.debug.print("Pipeline destroyed successfully\n", .{});
             } else {

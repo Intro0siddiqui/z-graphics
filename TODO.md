@@ -13,4 +13,4 @@
         - [x] Scaffolding/FFI Stubs
 - [x] Implement `z_graphics_swap_buffers`
 - [x] Implement Basic Drawing API & Resource Buffers
-- [ ] Integrate with WebKit compositor
+- [x] Integrate with WebKit compositor
