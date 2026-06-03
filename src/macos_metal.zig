@@ -214,8 +214,8 @@ pub fn createPipeline(surface: *MetalSurface, desc: *const zgraphics.PipelineDes
     _ = objc_msgSend(attachment0, setPixelFormat, @as(usize, 70));
 
     const newRenderPipelineStateWithDescriptor = sel_registerName("newRenderPipelineStateWithDescriptor:error:");
-    const pipeline_error: ?*anyopaque = null;
-    const state = @as(?*anyopaque, @ptrCast(objc_msgSend(surface.device, newRenderPipelineStateWithDescriptor, pipeline_desc, @ptrCast(pipeline_error)))) orelse return null;
+    var pipeline_error: ?*anyopaque = null;
+    const state = @as(?*anyopaque, @ptrCast(objc_msgSend(surface.device, newRenderPipelineStateWithDescriptor, pipeline_desc, @as(?*?*anyopaque, &pipeline_error)))) orelse return null;
     const mp = std.heap.page_allocator.create(MetalPipeline) catch return null;
     mp.* = .{ .pipeline_state = state };
     return mp;

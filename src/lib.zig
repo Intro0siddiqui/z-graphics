@@ -264,9 +264,9 @@ pub export fn ZawraGraphics_UploadBuffer(handle: ZawraGraphicsHandle, buffer: Za
     if (builtin.os.tag == .linux) {
         return linux_vulkan.uploadBuffer(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(buffer)), data, dataLen);
     } else if (builtin.os.tag == .macos) {
-        return macos_metal.uploadBuffer(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(buffer)), data, dataLen);
+        return macos_metal.uploadBuffer(@ptrCast(@alignCast(buffer)), data, dataLen);
     } else if (builtin.os.tag == .windows) {
-        return windows_d3d12.uploadBuffer(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(buffer)), data, dataLen);
+        return windows_d3d12.uploadBuffer(@ptrCast(@alignCast(buffer)), data, dataLen);
     }
     return false;
 }
