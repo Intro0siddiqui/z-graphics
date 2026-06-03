@@ -366,26 +366,90 @@ pub const D3D12CommandBuffer = struct { cmd_list: ?*anyopaque, allocator: ?*anyo
 
 pub fn beginCommandBuffer(surface: *D3D12Surface) ?*D3D12CommandBuffer {
     if (builtin.os.tag != .windows) return null;
-    _ = surface;
-    return null;
+    const IID_ID3D12CommandAllocator = GUID{
+        .Data1 = 0x6102dee4, .Data2 = 0xaf59, .Data3 = 0x4b09, .Data4 = .{0xb9, 0x99, 0xb4, 0x4d, 0x73, 0xf0, 0x9b, 0x24}
+    };
+    const IID_ID3D12GraphicsCommandList = GUID{
+        .Data1 = 0x5b160d0f, .Data2 = 0xac1b, .Data3 = 0x4185, .Data4 = .{0x8b, 0xa8, 0xb3, 0xae, 0x42, 0xa5, 0xa4, 0x55}
+    };
+    var allocator: ?*anyopaque = null;
+    var cmd_list: ?*anyopaque = null;
+    const vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(surface.device.?))).*;
+    const CreateCommandAllocator = @as(*const fn (*anyopaque, u32, *const GUID, *?*anyopaque) callconv(.c) HRESULT, @ptrCast(vtbl[9]));
+    _ = CreateCommandAllocator(surface.device.?, 0, &IID_ID3D12CommandAllocator, &allocator);
+    const CreateCommandList = @as(*const fn (*anyopaque, u32, u32, *anyopaque, ?*anyopaque, *const GUID, *?*anyopaque) callconv(.c) HRESULT, @ptrCast(vtbl[11]));
+    if (allocator) |alloc| {
+        _ = CreateCommandList(surface.device.?, 0, 0, alloc, null, &IID_ID3D12GraphicsCommandList, &cmd_list);
+    }
+    const buf = std.heap.page_allocator.create(D3D12CommandBuffer) catch return null;
+    buf.* = .{ .cmd_list = cmd_list, .allocator = allocator };
+    return buf;
 }
 
 pub fn cmdClearColor(cmd: *D3D12CommandBuffer, r: f32, g: f32, b: f32, a: f32) void {
     if (builtin.os.tag != .windows) return;
-    _ = cmd; _ = r; _ = g; _ = b; _ = a;
+    if (cmd.cmd_list) |cmd_list| {
+        const vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(cmd_list))).*;
+        const ClearRenderTargetView = @as(*const fn (*anyopaque, usize, *const [4]f32, u32, ?*anyopaque) callconv(.c) void, @ptrCast(vtbl[43]));
+        const color = [4]f32{ r, g, b, a };
+        ClearRenderTargetView(cmd_list, 0, &color, 0, null);
+    }
 }
 
 pub fn submitCommandBuffer(surface: *D3D12Surface, cmd: *D3D12CommandBuffer) void {
     if (builtin.os.tag != .windows) return;
-    _ = surface; _ = cmd;
+    if (cmd.cmd_list) |cmd_list| {
+        const vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(cmd_list))).*;
+        const Close = @as(*const fn (*anyopaque) callconv(.c) HRESULT, @ptrCast(vtbl[9]));
+        _ = Close(cmd_list);
+    }
+    if (surface.command_queue) |queue| {
+        const q_vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(queue))).*;
+        const ExecuteCommandLists = @as(*const fn (*anyopaque, u32, [*]const ?*anyopaque) callconv(.c) void, @ptrCast(q_vtbl[10]));
+        const lists = [_]?*anyopaque{cmd.cmd_list};
+        ExecuteCommandLists(queue, 1, &lists);
+    }
+    if (surface.swapchain) |sc| {
+        const sc_vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(sc))).*;
+        const Present = @as(*const fn (*anyopaque, u32, u32) callconv(.c) HRESULT, @ptrCast(sc_vtbl[8]));
+        _ = Present(sc, 1, 0);
+    }
 }
 
 pub const D3D12Pipeline = struct { pipeline_state: ?*anyopaque, root_signature: ?*anyopaque };
 
 pub fn createPipeline(surface: *D3D12Surface, desc: *const zgraphics.PipelineDesc) ?*D3D12Pipeline {
     if (builtin.os.tag != .windows) return null;
-    _ = surface; _ = desc;
-    return null;
+    const vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(surface.device.?))).*;
+    const IID_ID3D12RootSignature = GUID{
+        .Data1 = 0xc54a6b66, .Data2 = 0x72df, .Data3 = 0x4ee8, .Data4 = .{0x8b, 0xe5, 0xa9, 0x46, 0xa1, 0x42, 0x92, 0x14}
+    };
+    var root_sig: ?*anyopaque = null;
+    const CreateRootSignature = @as(*const fn (*anyopaque, u32, ?*const anyopaque, usize, *const GUID, *?*anyopaque) callconv(.c) HRESULT, @ptrCast(vtbl[30]));
+    _ = CreateRootSignature(surface.device.?, 0, desc.vertex_shader, desc.vertex_shader_len, &IID_ID3D12RootSignature, &root_sig);
+    
+    const IID_ID3D12PipelineState = GUID{
+        .Data1 = 0x765a30f3, .Data2 = 0xf624, .Data3 = 0x4c6f, .Data4 = .{0xa8, 0x28, 0xac, 0xe9, 0x48, 0x62, 0x24, 0x45}
+    };
+    var pipeline_state: ?*anyopaque = null;
+    
+    const D3D12_GRAPHICS_PIPELINE_STATE_DESC = extern struct {
+        pRootSignature: ?*anyopaque,
+        VS: extern struct { pShaderBytecode: ?[*]const u8, BytecodeLength: usize },
+        PS: extern struct { pShaderBytecode: ?[*]const u8, BytecodeLength: usize },
+        padding: [1024]u8,
+    };
+    var pso_desc = std.mem.zeroes(D3D12_GRAPHICS_PIPELINE_STATE_DESC);
+    pso_desc.pRootSignature = root_sig;
+    pso_desc.VS = .{ .pShaderBytecode = desc.vertex_shader, .BytecodeLength = desc.vertex_shader_len };
+    pso_desc.PS = .{ .pShaderBytecode = desc.pixel_shader, .BytecodeLength = desc.pixel_shader_len };
+    
+    const CreateGraphicsPipelineState = @as(*const fn (*anyopaque, *const D3D12_GRAPHICS_PIPELINE_STATE_DESC, *const GUID, *?*anyopaque) callconv(.c) HRESULT, @ptrCast(vtbl[13]));
+    _ = CreateGraphicsPipelineState(surface.device.?, &pso_desc, &IID_ID3D12PipelineState, &pipeline_state);
+    
+    const pipe = std.heap.page_allocator.create(D3D12Pipeline) catch return null;
+    pipe.* = .{ .pipeline_state = pipeline_state, .root_signature = root_sig };
+    return pipe;
 }
 
 pub fn destroyPipeline(surface: *D3D12Surface, pipeline: ?*D3D12Pipeline) void {
