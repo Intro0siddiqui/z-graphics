@@ -1082,6 +1082,30 @@ pub fn createBuffer(surface: *VulkanSurface, size: usize, buffer_type: u32) ?*Vu
             }
         }
     }
+    if (found == null) {
+        for (0..32) |i| {
+            if ((mem_reqs.memoryTypeBits & (@as(u32, 1) << @intCast(i))) != 0) {
+                var mem_props: c.VkPhysicalDeviceMemoryProperties = undefined;
+                c.vkGetPhysicalDeviceMemoryProperties(surface.physical_device, &mem_props);
+                if ((mem_props.memoryTypes[i].propertyFlags & c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) != 0) {
+                    found = @intCast(i);
+                    break;
+                }
+            }
+        }
+    }
+    if (found == null) {
+        for (0..32) |i| {
+            if ((mem_reqs.memoryTypeBits & (@as(u32, 1) << @intCast(i))) != 0) {
+                var mem_props: c.VkPhysicalDeviceMemoryProperties = undefined;
+                c.vkGetPhysicalDeviceMemoryProperties(surface.physical_device, &mem_props);
+                if ((mem_props.memoryTypes[i].propertyFlags & c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) != 0) {
+                    found = @intCast(i);
+                    break;
+                }
+            }
+        }
+    }
     alloc_info.memoryTypeIndex = found orelse {
         c.vkDestroyBuffer(surface.device, buffer, null);
         return null;

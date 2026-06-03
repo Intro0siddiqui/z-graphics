@@ -49,6 +49,8 @@ extern "user32" fn CreateWindowExA(
 ) callconv(.c) ?HWND;
 extern "user32" fn DefWindowProcA(hWnd: HWND, Msg: u32, wParam: usize, lParam: isize) callconv(.c) isize;
 extern "kernel32" fn GetModuleHandleA(lpModuleName: ?[*:0]const u8) callconv(.c) HINSTANCE;
+extern "kernel32" fn LoadLibraryA(lpLibFileName: [*:0]const u8) callconv(.c) ?HINSTANCE;
+extern "kernel32" fn GetProcAddress(hModule: ?HINSTANCE, lpProcName: [*:0]const u8) callconv(.c) ?*anyopaque;
 
 const WS_OVERLAPPEDWINDOW = 0x00CF0000;
 const WS_VISIBLE = 0x10000000;
@@ -420,13 +422,64 @@ pub const D3D12Pipeline = struct { pipeline_state: ?*anyopaque, root_signature: 
 
 pub fn createPipeline(surface: *D3D12Surface, desc: *const zgraphics.PipelineDesc) ?*D3D12Pipeline {
     if (builtin.os.tag != .windows) return null;
+    _ = desc;
     const vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(surface.device.?))).*;
     const IID_ID3D12RootSignature = GUID{
         .Data1 = 0xc54a6b66, .Data2 = 0x72df, .Data3 = 0x4ee8, .Data4 = .{0x8b, 0xe5, 0xa9, 0x46, 0xa1, 0x42, 0x92, 0x14}
     };
     var root_sig: ?*anyopaque = null;
     const CreateRootSignature = @as(*const fn (*anyopaque, u32, ?*const anyopaque, usize, *const GUID, *?*anyopaque) callconv(.c) HRESULT, @ptrCast(vtbl[30]));
-    _ = CreateRootSignature(surface.device.?, 0, desc.vertex_shader, desc.vertex_shader_len, &IID_ID3D12RootSignature, &root_sig);
+    
+    const D3D12_ROOT_SIGNATURE_DESC = extern struct {
+        NumParameters: u32, pParameters: ?*anyopaque,
+        NumStaticSamplers: u32, pStaticSamplers: ?*anyopaque,
+        Flags: u32,
+    };
+    const d3d12_lib = LoadLibraryA("d3d12.dll");
+    if (d3d12_lib) |lib| {
+        if (GetProcAddress(lib, "D3D12SerializeRootSignature")) |proc| {
+            const serializeFn = @as(*const fn (*const D3D12_ROOT_SIGNATURE_DESC, u32, *?*anyopaque, ?*?*anyopaque) callconv(.c) HRESULT, @ptrCast(proc));
+            const rs_desc = D3D12_ROOT_SIGNATURE_DESC{ .NumParameters = 0, .pParameters = null, .NumStaticSamplers = 0, .pStaticSamplers = null, .Flags = 0 };
+            var root_blob: ?*anyopaque = null;
+            if (serializeFn(&rs_desc, 1, &root_blob, null) >= 0 and root_blob != null) {
+                const blob_vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(root_blob.?))).*;
+                const GetBufferPointer = @as(*const fn (*anyopaque) callconv(.c) ?*anyopaque, @ptrCast(blob_vtbl[3]));
+                const GetBufferSize = @as(*const fn (*anyopaque) callconv(.c) usize, @ptrCast(blob_vtbl[4]));
+                _ = CreateRootSignature(surface.device.?, 0, GetBufferPointer(root_blob.?), GetBufferSize(root_blob.?), &IID_ID3D12RootSignature, &root_sig);
+                const Release = @as(*const fn (*anyopaque) callconv(.c) u32, @ptrCast(blob_vtbl[2]));
+                _ = Release(root_blob.?);
+            }
+        }
+    }
+    
+    var vs_bytecode: ?[*]const u8 = null;
+    var vs_size: usize = 0;
+    var ps_bytecode: ?[*]const u8 = null;
+    var ps_size: usize = 0;
+    
+    const d3dcomp_lib = LoadLibraryA("d3dcompiler_47.dll");
+    if (d3dcomp_lib) |lib| {
+        if (GetProcAddress(lib, "D3DCompile")) |proc| {
+            const compileFn = @as(*const fn ([*]const u8, usize, ?[*:0]const u8, ?*anyopaque, ?*anyopaque, [*:0]const u8, [*:0]const u8, u32, u32, *?*anyopaque, ?*?*anyopaque) callconv(.c) HRESULT, @ptrCast(proc));
+            const shader_src = "struct VS_OUT { float4 pos : SV_POSITION; }; VS_OUT vs_main() { VS_OUT output; output.pos = float4(0,0,0,1); return output; } float4 ps_main() : SV_TARGET { return float4(1,0,0,1); }";
+            var vs_blob: ?*anyopaque = null;
+            var ps_blob: ?*anyopaque = null;
+            if (compileFn(shader_src.ptr, shader_src.len, null, null, null, "vs_main", "vs_5_0", 0, 0, &vs_blob, null) >= 0 and vs_blob != null) {
+                const blob_vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(vs_blob.?))).*;
+                const GetBufferPointer = @as(*const fn (*anyopaque) callconv(.c) ?*anyopaque, @ptrCast(blob_vtbl[3]));
+                const GetBufferSize = @as(*const fn (*anyopaque) callconv(.c) usize, @ptrCast(blob_vtbl[4]));
+                vs_bytecode = @as(?[*]const u8, @ptrCast(GetBufferPointer(vs_blob.?)));
+                vs_size = GetBufferSize(vs_blob.?);
+            }
+            if (compileFn(shader_src.ptr, shader_src.len, null, null, null, "ps_main", "ps_5_0", 0, 0, &ps_blob, null) >= 0 and ps_blob != null) {
+                const blob_vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(ps_blob.?))).*;
+                const GetBufferPointer = @as(*const fn (*anyopaque) callconv(.c) ?*anyopaque, @ptrCast(blob_vtbl[3]));
+                const GetBufferSize = @as(*const fn (*anyopaque) callconv(.c) usize, @ptrCast(blob_vtbl[4]));
+                ps_bytecode = @as(?[*]const u8, @ptrCast(GetBufferPointer(ps_blob.?)));
+                ps_size = GetBufferSize(ps_blob.?);
+            }
+        }
+    }
     
     const IID_ID3D12PipelineState = GUID{
         .Data1 = 0x765a30f3, .Data2 = 0xf624, .Data3 = 0x4c6f, .Data4 = .{0xa8, 0x28, 0xac, 0xe9, 0x48, 0x62, 0x24, 0x45}
@@ -441,8 +494,8 @@ pub fn createPipeline(surface: *D3D12Surface, desc: *const zgraphics.PipelineDes
     };
     var pso_desc = std.mem.zeroes(D3D12_GRAPHICS_PIPELINE_STATE_DESC);
     pso_desc.pRootSignature = root_sig;
-    pso_desc.VS = .{ .pShaderBytecode = desc.vertex_shader, .BytecodeLength = desc.vertex_shader_len };
-    pso_desc.PS = .{ .pShaderBytecode = desc.pixel_shader, .BytecodeLength = desc.pixel_shader_len };
+    pso_desc.VS = .{ .pShaderBytecode = vs_bytecode, .BytecodeLength = vs_size };
+    pso_desc.PS = .{ .pShaderBytecode = ps_bytecode, .BytecodeLength = ps_size };
     
     const CreateGraphicsPipelineState = @as(*const fn (*anyopaque, *const D3D12_GRAPHICS_PIPELINE_STATE_DESC, *const GUID, *?*anyopaque) callconv(.c) HRESULT, @ptrCast(vtbl[13]));
     _ = CreateGraphicsPipelineState(surface.device.?, &pso_desc, &IID_ID3D12PipelineState, &pipeline_state);
@@ -460,7 +513,17 @@ pub fn destroyPipeline(surface: *D3D12Surface, pipeline: ?*D3D12Pipeline) void {
 
 pub fn cmdBindPipeline(cmd: *D3D12CommandBuffer, pipeline: *D3D12Pipeline) void {
     if (builtin.os.tag != .windows) return;
-    _ = cmd; _ = pipeline;
+    if (cmd.cmd_list) |cmd_list| {
+        const vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(cmd_list))).*;
+        if (pipeline.pipeline_state) |pso| {
+            const SetPipelineState = @as(*const fn (*anyopaque, *anyopaque) callconv(.c) void, @ptrCast(vtbl[25]));
+            SetPipelineState(cmd_list, pso);
+        }
+        if (pipeline.root_signature) |rs| {
+            const SetGraphicsRootSignature = @as(*const fn (*anyopaque, *anyopaque) callconv(.c) void, @ptrCast(vtbl[30]));
+            SetGraphicsRootSignature(cmd_list, rs);
+        }
+    }
 }
 
 pub fn cmdBindVertexBuffer(cmd: *D3D12CommandBuffer, buffer: *D3D12Buffer, offset: usize) void {
