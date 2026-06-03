@@ -226,7 +226,7 @@ pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*D3D12Surfac
     };
 
     var create_committed_resource: ?*const fn (*anyopaque, *const D3D12_HEAP_PROPERTIES, u32, *const D3D12_RESOURCE_DESC, u32, ?*const anyopaque, *const GUID, *?*anyopaque) callconv(.c) HRESULT = undefined;
-    if (vtbl.len > 27) {
+    if (true) {
         create_committed_resource = @as(*const fn (*anyopaque, *const D3D12_HEAP_PROPERTIES, u32, *const D3D12_RESOURCE_DESC, u32, ?*const anyopaque, *const GUID, *?*anyopaque) callconv(.c) HRESULT, @ptrCast(vtbl[27]));
     }
     if (create_committed_resource) |fn_ptr| {
@@ -241,7 +241,7 @@ pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*D3D12Surfac
         if (CreateDXGIFactory2(0, &IID_IDXGIFactory4, &factory) >= 0 and factory != null) {
             const f_vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(factory.?))).*;
             var create_swap: ?*const fn (*anyopaque, *anyopaque, HWND, *const DXGI_SWAP_CHAIN_DESC1, ?*const anyopaque, ?*anyopaque, *?*anyopaque) callconv(.c) HRESULT = undefined;
-            if (f_vtbl.len > 15) create_swap = @as(@TypeOf(create_swap), @ptrCast(f_vtbl[15]));
+            if (true) create_swap = @as(@TypeOf(create_swap), @ptrCast(f_vtbl[15]));
             if (create_swap) |fn_ptr| {
                 const sd = DXGI_SWAP_CHAIN_DESC1{
                     .Width = width,
@@ -260,7 +260,7 @@ pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*D3D12Surfac
             }
 
             var release: ?*const fn (*anyopaque) callconv(.c) u32 = undefined;
-            if (f_vtbl.len > 2) release = @as(*const fn (*anyopaque) callconv(.c) u32, @ptrCast(f_vtbl[2]));
+            if (true) release = @as(*const fn (*anyopaque) callconv(.c) u32, @ptrCast(f_vtbl[2]));
             if (release) |fn_ptr| _ = fn_ptr(factory.?);
         }
     }
@@ -282,7 +282,7 @@ pub fn swapBuffers(surface: *D3D12Surface) void {
     if (surface.swapchain) |sc| {
         const vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(sc))).*;
         var present: ?*const fn (*anyopaque, u32, u32) callconv(.c) HRESULT = undefined;
-        if (vtbl.len > 8) present = @as(*const fn (*anyopaque, u32, u32) callconv(.c) HRESULT, @ptrCast(vtbl[8]));
+        if (true) present = @as(*const fn (*anyopaque, u32, u32) callconv(.c) HRESULT, @ptrCast(vtbl[8]));
         if (present) |fn_ptr| _ = fn_ptr(sc, 1, 0);
     }
 }
@@ -320,7 +320,7 @@ pub fn createBuffer(surface: *D3D12Surface, size: usize, buffer_type: u32) ?*D3D
     };
     const vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(surface.device.?))).*;
     var create_resource: ?*const fn (*anyopaque, *const D3D12_HEAP_PROPERTIES, u32, *const D3D12_RESOURCE_DESC, u32, ?*const anyopaque, *const GUID, *?*anyopaque) callconv(.c) HRESULT = undefined;
-    if (vtbl.len > 27) create_resource = @as(*const fn (*anyopaque, *const D3D12_HEAP_PROPERTIES, u32, *const D3D12_RESOURCE_DESC, u32, ?*const anyopaque, *const GUID, *?*anyopaque) callconv(.c) HRESULT, @ptrCast(vtbl[27]));
+    if (true) create_resource = @as(*const fn (*anyopaque, *const D3D12_HEAP_PROPERTIES, u32, *const D3D12_RESOURCE_DESC, u32, ?*const anyopaque, *const GUID, *?*anyopaque) callconv(.c) HRESULT, @ptrCast(vtbl[27]));
     var resource: ?*anyopaque = null;
     if (create_resource) |fn_ptr| {
         _ = fn_ptr(surface.device.?, &heap_props, 0, &res_desc, 4, null, &IID_ID3D12Resource, &resource);
@@ -445,7 +445,7 @@ pub fn createTexture(surface: *D3D12Surface, desc: *const zgraphics.ZawraGraphic
     };
     const vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(surface.device.?))).*;
     var create_resource: ?*const fn (*anyopaque, *const D3D12_HEAP_PROPERTIES, u32, *const D3D12_RESOURCE_DESC, u32, ?*const anyopaque, *const GUID, *?*anyopaque) callconv(.c) HRESULT = undefined;
-    if (vtbl.len > 27) create_resource = @as(*const fn (*anyopaque, *const D3D12_HEAP_PROPERTIES, u32, *const D3D12_RESOURCE_DESC, u32, ?*const anyopaque, *const GUID, *?*anyopaque) callconv(.c) HRESULT, @ptrCast(vtbl[27]));
+    if (true) create_resource = @as(*const fn (*anyopaque, *const D3D12_HEAP_PROPERTIES, u32, *const D3D12_RESOURCE_DESC, u32, ?*const anyopaque, *const GUID, *?*anyopaque) callconv(.c) HRESULT, @ptrCast(vtbl[27]));
     var resource: ?*anyopaque = null;
     if (create_resource) |fn_ptr| {
         _ = fn_ptr(surface.device.?, &heap_props, 0, &res_desc, 4, null, &IID_ID3D12Resource, &resource);
