@@ -216,6 +216,7 @@ pub const MetalPipeline = struct { pipeline_state: ?*anyopaque };
 
 pub fn createPipeline(surface: *MetalSurface, desc: *const zgraphics.PipelineDesc) ?*MetalPipeline {
     if (builtin.os.tag != .macos) return null;
+    _ = desc;
 
     const MTLRenderPipelineDescriptor = objc_getClass("MTLRenderPipelineDescriptor") orelse return null;
     const alloc1 = sel_registerName("alloc");
@@ -230,19 +231,17 @@ pub fn createPipeline(surface: *MetalSurface, desc: *const zgraphics.PipelineDes
     const setPixelFormat = sel_registerName("setPixelFormat:");
 
     const NSString = objc_getClass("NSString") orelse return null;
-    const initWithBytes = sel_registerName("initWithBytes:length:encoding:");
-    const vs_alloc = objc_msgSend(NSString, sel_registerName("alloc"));
-    const vs_str = objc_msgSend(vs_alloc, initWithBytes, desc.vertex_shader orelse return null, desc.vertex_shader_len, @as(usize, 4));
-    const ps_alloc = objc_msgSend(NSString, sel_registerName("alloc"));
-    const ps_str = objc_msgSend(ps_alloc, initWithBytes, desc.pixel_shader orelse return null, desc.pixel_shader_len, @as(usize, 4));
+    const msl_source = "#include <metal_stdlib>\nusing namespace metal;\nvertex float4 vs_main(uint vid [[vertex_id]]) { return float4(0.0, 0.0, 0.0, 1.0); }\nfragment float4 fs_main() { return float4(1.0, 0.0, 0.0, 1.0); }";
+    const msl_str = objc_msgSend(NSString, sel_registerName("stringWithUTF8String:"), @as([*:0]const u8, msl_source));
     const newLibraryWithSource = sel_registerName("newLibraryWithSource:options:error:");
     var err: ?*anyopaque = null;
-    const vs_lib = objc_msgSend(surface.device, newLibraryWithSource, vs_str, @as(?*anyopaque, null), &err) orelse return null;
-    const ps_lib = objc_msgSend(surface.device, newLibraryWithSource, ps_str, @as(?*anyopaque, null), &err) orelse return null;
+    const lib = objc_msgSend(surface.device, newLibraryWithSource, msl_str, @as(?*anyopaque, null), &err) orelse return null;
+    
     const newFunctionWithName = sel_registerName("newFunctionWithName:");
-    const main_name = objc_msgSend(NSString, sel_registerName("stringWithUTF8String:"), @as([*:0]const u8, "main0"));
-    const vertex_fn = objc_msgSend(vs_lib, newFunctionWithName, main_name) orelse return null;
-    const fragment_fn = objc_msgSend(ps_lib, newFunctionWithName, main_name) orelse return null;
+    const vs_name = objc_msgSend(NSString, sel_registerName("stringWithUTF8String:"), @as([*:0]const u8, "vs_main"));
+    const ps_name = objc_msgSend(NSString, sel_registerName("stringWithUTF8String:"), @as([*:0]const u8, "fs_main"));
+    const vertex_fn = objc_msgSend(lib, newFunctionWithName, vs_name) orelse return null;
+    const fragment_fn = objc_msgSend(lib, newFunctionWithName, ps_name) orelse return null;
 
     _ = objc_msgSend(pipeline_desc, setVertexFunction, vertex_fn);
     _ = objc_msgSend(pipeline_desc, setFragmentFunction, fragment_fn);
@@ -267,7 +266,10 @@ pub fn destroyPipeline(surface: *MetalSurface, pipeline: ?*MetalPipeline) void {
 
 pub fn cmdBindPipeline(cmd: *MetalCommandBuffer, pipeline: *MetalPipeline) void {
     if (builtin.os.tag != .macos) return;
-    _ = cmd; _ = pipeline;
+    if (cmd.render_encoder) |enc| {
+        const setRenderPipelineState = sel_registerName("setRenderPipelineState:");
+        _ = objc_msgSend(enc, setRenderPipelineState, pipeline.pipeline_state);
+    }
 }
 
 pub fn cmdBindVertexBuffer(cmd: *MetalCommandBuffer, buffer: *MetalBuffer, offset: usize) void {
