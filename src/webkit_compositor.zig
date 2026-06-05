@@ -55,11 +55,11 @@ pub fn renderLayer(state: *CompositorState) bool {
 
     const cmd = zg.ZawraGraphics_BeginCommandBuffer(state.surface.?) orelse return false;
 
-    zg.ZawraGraphics_CmdBindPipeline(cmd.?, state.pipeline.?);
-    zg.ZawraGraphics_CmdBindVertexBuffer(cmd.?, state.vertex_buffer.?, 0);
-    zg.ZawraGraphics_CmdDraw(cmd.?, 4, 1, 0, 0);
+    zg.ZawraGraphics_CmdBindPipeline(cmd, state.pipeline.?);
+    zg.ZawraGraphics_CmdBindVertexBuffer(cmd, state.vertex_buffer.?, 0);
+    zg.ZawraGraphics_CmdDraw(cmd, 4, 1, 0, 0);
 
-    zg.ZawraGraphics_SubmitCommandBuffer(state.surface.?, cmd.?);
+    zg.ZawraGraphics_SubmitCommandBuffer(state.surface.?, cmd);
     zg.ZawraGraphics_SwapBuffers(state.surface.?);
 
     return true;

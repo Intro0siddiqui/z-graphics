@@ -6,6 +6,14 @@ const builtin = @import("builtin");
 const linux_vulkan = if (builtin.os.tag == .linux) @import("linux_vulkan.zig") else struct {};
 const macos_metal = if (builtin.os.tag == .macos) @import("macos_metal.zig") else struct {};
 const windows_d3d12 = if (builtin.os.tag == .windows) @import("windows_d3d12.zig") else struct {};
+const compositor = @import("webkit_compositor.zig");
+
+export fn _force_zgraphics_exports() void {
+    _ = compositor.ZawraGraphics_CompositorInitialize;
+    _ = compositor.ZawraGraphics_CompositorRenderLayer;
+    _ = compositor.ZawraGraphics_CompositorDestroy;
+    _ = compositor.ZawraGraphics_CompositorResize;
+}
 
 /// The internal structure representing a graphics surface.
 /// This is platform-dependent and opaque to the user (FFI).

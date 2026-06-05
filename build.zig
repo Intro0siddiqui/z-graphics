@@ -18,6 +18,14 @@ pub fn build(b: *std.Build) void {
     });
     lib_mod.link_libc = true;
 
+    // Build the static library
+    const static_lib = b.addLibrary(.{
+        .linkage = .static,
+        .name = "z-graphics",
+        .root_module = lib_mod,
+    });
+    b.installArtifact(static_lib);
+
     // Smoke test executable
     const smoke_test = b.addExecutable(.{
         .name = "smoke-test",
@@ -47,6 +55,13 @@ pub fn build(b: *std.Build) void {
         \\pub const vert = @embedFile("basic.vert.spv");
         \\pub const frag = @embedFile("basic.frag.spv");
     );
+
+    lib_mod.addAnonymousImport("shaders", .{
+        .root_source_file = shader_zig,
+    });
+    static_lib.root_module.addAnonymousImport("shaders", .{
+        .root_source_file = shader_zig,
+    });
 
     smoke_test.root_module.addAnonymousImport("shaders", .{
         .root_source_file = shader_zig,
