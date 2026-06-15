@@ -679,14 +679,20 @@ pub fn createWindow(width: u32, height: u32) ?*anyopaque {
 
     var event: XEvent = undefined;
     var safety: u32 = 0;
-    while (safety < 1000) : (safety += 1) {
-        _ = XNextEvent(display, &event);
-        if (event.type == MapNotify) break;
+    while (safety < 100) : (safety += 1) {
+        if (XPending(display) > 0) {
+            _ = XNextEvent(display, &event);
+            if (event.type == MapNotify) {
+                std.debug.print("[Z-GRAPHICS] createWindow: got MapNotify after {} iterations\n", .{safety});
+                break;
+            }
+        } else {
+            const req = std.os.linux.timespec{ .sec = 0, .nsec = 10 * std.time.ns_per_ms };
+            _ = std.os.linux.nanosleep(&req, null);
+        }
     }
-    if (safety >= 1000) {
-        std.debug.print("[Z-GRAPHICS] createWindow: WARNING timed out waiting for MapNotify\n", .{});
-    } else {
-        std.debug.print("[Z-GRAPHICS] createWindow: got MapNotify after {} iterations\n", .{safety});
+    if (safety >= 100) {
+        std.debug.print("[Z-GRAPHICS] createWindow: WARNING timed out waiting for MapNotify, proceeding anyway\n", .{});
     }
 
     const state = std.heap.page_allocator.create(X11WindowState) catch {
