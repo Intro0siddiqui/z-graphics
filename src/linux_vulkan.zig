@@ -235,6 +235,13 @@ const c = struct {
         handleTypes: u32,
     };
 
+    pub const VkMemoryGetFdInfoKHR = extern struct {
+        sType: VkStructureType = VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR,
+        pNext: ?*const anyopaque = null,
+        memory: VkDeviceMemory,
+        handleType: u32,
+    };
+
     pub const VkImageViewCreateInfo = extern struct {
         sType: VkStructureType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
         pNext: ?*const anyopaque = null,
@@ -549,6 +556,7 @@ const c = struct {
     pub const VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO = 40;
     pub const VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO = 43;
     pub const VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO = 50;
+    pub const VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR = 1000074002;
     pub const VK_COMMAND_BUFFER_LEVEL_PRIMARY = 0;
     pub const VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO = 42;
     pub const VK_BUFFER_USAGE_TRANSFER_SRC_BIT = 1 << 7;
@@ -1091,8 +1099,8 @@ pub fn exportSurfaceFD(surface: *VulkanSurface) i32 {
     const pfnGetMemoryFdKHR = @as(?c.PFN_vkGetMemoryFdKHR, @ptrCast(c.vkGetDeviceProcAddr(surface.device, "vkGetMemoryFdKHR")));
     if (pfnGetMemoryFdKHR) |getFd| {
         var fd: i32 = -1;
-        const get_fd_info = struct { sType: u32, pNext: ?*anyopaque, memory: c.VkDeviceMemory, handleType: u32 }{
-            .sType = 1000071001, // VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR
+        const get_fd_info = c.VkMemoryGetFdInfoKHR{
+            .sType = c.VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR,
             .pNext = null,
             .memory = surface.image_memory,
             .handleType = c.VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
