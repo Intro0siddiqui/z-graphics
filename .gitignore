@@ -1,4 +1,8 @@
 .zig-cache/
 zig-out/
+*.a
+*.o
+*.exe
+*.pdb
 .kilo/
 libz-graphics.a

@@ -641,17 +641,62 @@ extern "X11" fn XCreateSimpleWindow(
 extern "X11" fn XMapWindow(display: *Display, w: Window) callconv(.c) i32;
 extern "X11" fn XDefaultRootWindow(display: *Display) callconv(.c) Window;
 extern "X11" fn XStoreName(display: *Display, w: Window, name: [*:0]const u8) callconv(.c) i32;
+extern "X11" fn XFlush(display: *Display) callconv(.c) i32;
+extern "X11" fn XSelectInput(display: *Display, w: Window, event_mask: u32) callconv(.c) i32;
+extern "X11" fn XNextEvent(display: *Display, event_return: *XEvent) callconv(.c) i32;
+extern "X11" fn XPending(display: *Display) callconv(.c) i32;
+
+const XEvent = extern struct {
+    type: u32,
+    pad: [19 * @sizeOf(usize)]u8,
+};
+
+const StructureNotifyMask = 1 << 19;
+const MapNotify = 19;
+
+pub const X11WindowState = struct {
+    display: *Display,
+    window: Window,
+};
 
 pub fn createWindow(width: u32, height: u32) ?*anyopaque {
     if (builtin.os.tag != .linux) return null;
-    
-    const display = XOpenDisplay(null) orelse return null;
+    std.debug.print("[Z-GRAPHICS] createWindow: opening X11 display\n", .{});
+
+    const display = XOpenDisplay(null) orelse {
+        std.debug.print("[Z-GRAPHICS] createWindow: XOpenDisplay failed\n", .{});
+        return null;
+    };
+    std.debug.print("[Z-GRAPHICS] createWindow: display={any}, creating {}x{} window\n", .{ display, width, height });
     const root = XDefaultRootWindow(display);
     const window = XCreateSimpleWindow(display, root, 100, 100, width, height, 0, 0, 0);
     _ = XStoreName(display, window, "Zawra Browser");
+
+    _ = XSelectInput(display, window, StructureNotifyMask);
     _ = XMapWindow(display, window);
-    
-    return @ptrFromInt(window);
+    _ = XFlush(display);
+    std.debug.print("[Z-GRAPHICS] createWindow: mapped, waiting for MapNotify...\n", .{});
+
+    var event: XEvent = undefined;
+    var safety: u32 = 0;
+    while (safety < 1000) : (safety += 1) {
+        _ = XNextEvent(display, &event);
+        if (event.type == MapNotify) break;
+    }
+    if (safety >= 1000) {
+        std.debug.print("[Z-GRAPHICS] createWindow: WARNING timed out waiting for MapNotify\n", .{});
+    } else {
+        std.debug.print("[Z-GRAPHICS] createWindow: got MapNotify after {} iterations\n", .{safety});
+    }
+
+    const state = std.heap.page_allocator.create(X11WindowState) catch {
+        std.debug.print("[Z-GRAPHICS] createWindow: failed to allocate X11WindowState\n", .{});
+        _ = XCloseDisplay(display);
+        return null;
+    };
+    state.* = .{ .display = display, .window = window };
+    std.debug.print("[Z-GRAPHICS] createWindow: success, window={}\n", .{window});
+    return @ptrFromInt(@intFromPtr(state));
 }
 
 fn findMemoryType(physical_device: c.VkPhysicalDevice, type_filter: u32, properties: u32) ?u32 {
@@ -795,19 +840,29 @@ pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*VulkanSurfa
         var surface: c.VkSurfaceKHR = null;
         var x_display: ?*Display = null;
         if (window) |w| {
-            const x_window: usize = @intFromPtr(w);
+            const state = @as(*X11WindowState, @ptrCast(@alignCast(w)));
+            const x_window: usize = state.window;
+            x_display = state.display;
+            std.debug.print("[Z-GRAPHICS] createSurface: extracting X11WindowState: display={any}, window={}\n", .{ x_display, x_window });
             const pfnCreateXlibSurfaceKHR = @as(?c.PFN_vkCreateXlibSurfaceKHR, @ptrCast(c.vkGetInstanceProcAddr(instance, "vkCreateXlibSurfaceKHR")));
             if (pfnCreateXlibSurfaceKHR) |createXlib| {
-                x_display = XOpenDisplay(null);
                 if (x_display) |dpy| {
                     const x_create_info = std.mem.zeroInit(c.VkXlibSurfaceCreateInfoKHR, .{
                         .sType = c.VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR,
                         .dpy = @as(*anyopaque, @ptrCast(dpy)),
                         .window = x_window,
                     });
-                    _ = createXlib(instance, &x_create_info, null, &surface);
+                    const result = createXlib(instance, &x_create_info, null, &surface);
+                    std.debug.print("[Z-GRAPHICS] createSurface: vkCreateXlibSurfaceKHR result={}\n", .{result});
+                } else {
+                    std.debug.print("[Z-GRAPHICS] createSurface: x_display is null, cannot create Vulkan surface\n", .{});
                 }
+            } else {
+                std.debug.print("[Z-GRAPHICS] createSurface: vkCreateXlibSurfaceKHR not found\n", .{});
             }
+            std.heap.page_allocator.destroy(state);
+        } else {
+            std.debug.print("[Z-GRAPHICS] createSurface: no window provided, headless mode\n", .{});
         }
 
         var external_image_info = std.mem.zeroInit(c.VkExternalMemoryImageCreateInfo, .{
