@@ -2100,14 +2100,17 @@ pub fn createTexture(surface: *VulkanSurface, desc: *const zgraphics.ZawraGraphi
     }
 
     const sampler_info = std.mem.zeroInit(c.VkSamplerCreateInfo, .{
-        .sType = 31, // VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO
+        .sType = 31,
         .magFilter = 1, // VK_FILTER_LINEAR
         .minFilter = 1, // VK_FILTER_LINEAR
-        .addressModeU = 2, // VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE
-        .addressModeV = 2,
-        .addressModeW = 2,
+        .addressModeU = 1, // VK_SAMPLER_ADDRESS_MODE_REPEAT
+        .addressModeV = 1, // VK_SAMPLER_ADDRESS_MODE_REPEAT
+        .addressModeW = 1, // VK_SAMPLER_ADDRESS_MODE_REPEAT
         .anisotropyEnable = 0,
         .unnormalizedCoordinates = 0,
+        .compareEnable = 0,
+        .compareOp = 0, // VK_COMPARE_OP_NEVER
+        .mipmapMode = 0, // VK_SAMPLER_MIPMAP_MODE_NEAREST
     });
     var sampler: c.VkSampler = null;
     if (c.vkCreateSampler(surface.device, &sampler_info, null, &sampler) != c.VK_SUCCESS) {

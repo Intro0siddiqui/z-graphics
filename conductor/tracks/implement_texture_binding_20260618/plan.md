@@ -15,5 +15,7 @@
 - [ ] Task: Conductor - User Manual Verification 'Phase 3'
 
 ## Phase 4: Final Verification
+- [ ] Task: Diagnose black screen (Check image layout transitions and descriptor bindings)
+- [ ] Task: Fix texture sampling logic in Vulkan backend
 - [ ] Task: Run `smoke_test.zig` and verify texture rendering
 - [ ] Task: Conductor - User Manual Verification 'Phase 4'
