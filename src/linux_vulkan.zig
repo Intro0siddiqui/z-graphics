@@ -301,6 +301,19 @@ const c = struct {
         flags: u32,
     };
 
+    pub const VkVertexInputBindingDescription = extern struct {
+        binding: u32,
+        stride: u32,
+        inputRate: u32,
+    };
+
+    pub const VkVertexInputAttributeDescription = extern struct {
+        location: u32,
+        binding: u32,
+        format: u32,
+        offset: u32,
+    };
+
     pub const VkPipelineLayoutCreateInfo = extern struct {
         sType: VkStructureType = 30, // VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO
         pNext: ?*const anyopaque = null,
@@ -569,6 +582,9 @@ const c = struct {
     pub const VK_SUBPASS_CONTENTS_INLINE = 0;
     pub const VK_IMAGE_USAGE_SAMPLED_BIT = 1 << 5;
     pub const VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT = 1 << 17;
+    pub const VK_FORMAT_R32G32_SFLOAT = 91;
+    pub const VK_VERTEX_INPUT_RATE_VERTEX = 0;
+    pub const VK_VERTEX_INPUT_RATE_INSTANCE = 1;
 
     pub const VkFramebuffer = ?*anyopaque;
     pub const VkFramebufferCreateInfo = extern struct {
@@ -1095,7 +1111,14 @@ pub fn swapBuffers(surface: *VulkanSurface) void {
 
 pub fn exportSurfaceFD(surface: *VulkanSurface) i32 {
     if (builtin.os.tag != .linux) return -1;
-    if (!surface.external_memory_enabled) return -1;
+    if (!surface.external_memory_enabled) {
+        std.debug.print("[Z-GRAPHICS] exportSurfaceFD: external memory not enabled\n", .{});
+        return -1;
+    }
+    if (surface.device == null or surface.image_memory == null) {
+        std.debug.print("[Z-GRAPHICS] exportSurfaceFD: device or image_memory is null\n", .{});
+        return -1;
+    }
     const pfnGetMemoryFdKHR = @as(?c.PFN_vkGetMemoryFdKHR, @ptrCast(c.vkGetDeviceProcAddr(surface.device, "vkGetMemoryFdKHR")));
     if (pfnGetMemoryFdKHR) |getFd| {
         var fd: i32 = -1;
@@ -1105,7 +1128,15 @@ pub fn exportSurfaceFD(surface: *VulkanSurface) i32 {
             .memory = surface.image_memory,
             .handleType = c.VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
         };
-        if (getFd(surface.device, &get_fd_info, &fd) == c.VK_SUCCESS) return fd;
+        const result = getFd(surface.device, &get_fd_info, &fd);
+        if (result == c.VK_SUCCESS) {
+            std.debug.print("[Z-GRAPHICS] exportSurfaceFD: exported fd={d}\n", .{fd});
+            return fd;
+        } else {
+            std.debug.print("[Z-GRAPHICS] exportSurfaceFD: vkGetMemoryFdKHR failed result={d}\n", .{result});
+        }
+    } else {
+        std.debug.print("[Z-GRAPHICS] exportSurfaceFD: vkGetMemoryFdKHR not found\n", .{});
     }
     return -1;
 }
@@ -1248,6 +1279,8 @@ pub fn submitCommandBuffer(surface: *VulkanSurface, cmd: *VulkanCommandBuffer) v
     _ = c.vkQueueSubmit(surface.graphics_queue, 1, @as([*]const c.VkSubmitInfo, @ptrCast(&submit_info)), surface.fence);
     _ = c.vkWaitForFences(surface.device, 1, @as([*]const c.VkFence, @ptrCast(&surface.fence)), c.VK_TRUE, std.math.maxInt(u64));
     _ = c.vkResetFences(surface.device, 1, @as([*]const c.VkFence, @ptrCast(&surface.fence)));
+    if (cmd.pool != null) c.vkDestroyCommandPool(surface.device, cmd.pool, null);
+    std.heap.page_allocator.destroy(cmd);
 }
 
 pub const VulkanPipeline = struct { pipeline: c.VkPipeline, layout: c.VkPipelineLayout };
@@ -1280,7 +1313,24 @@ pub fn createPipeline(surface: *VulkanSurface, desc: *const @import("lib.zig").P
         .{ .stage = c.VK_SHADER_STAGE_FRAGMENT_BIT, .module = frag_module, .pName = "main" },
     };
 
-    const vertex_input_info = std.mem.zeroInit(c.VkPipelineVertexInputStateCreateInfo, .{});
+    const vb_desc = c.VkVertexInputBindingDescription{
+        .binding = 0,
+        .stride = 4 * @sizeOf(f32),
+        .inputRate = c.VK_VERTEX_INPUT_RATE_VERTEX,
+    };
+    const va_desc = [_]c.VkVertexInputAttributeDescription{
+        .{ .location = 0, .binding = 0, .format = c.VK_FORMAT_R32G32_SFLOAT, .offset = 0 },
+        .{ .location = 1, .binding = 0, .format = c.VK_FORMAT_R32G32_SFLOAT, .offset = 2 * @sizeOf(f32) },
+    };
+    var vertex_input_info: c.VkPipelineVertexInputStateCreateInfo = undefined;
+    vertex_input_info.sType = 19;
+    vertex_input_info.pNext = null;
+    vertex_input_info.flags = 0;
+    vertex_input_info.vertexBindingDescriptionCount = 1;
+    vertex_input_info.vertexAttributeDescriptionCount = 2;
+    vertex_input_info.pVertexBindingDescriptions = &vb_desc;
+    vertex_input_info.pVertexAttributeDescriptions = &va_desc;
+
     const input_assembly = std.mem.zeroInit(c.VkPipelineInputAssemblyStateCreateInfo, .{ .topology = c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, .primitiveRestartEnable = 0 });
     const viewport = c.VkViewport{ .x = 0, .y = 0, .width = @floatFromInt(surface.width), .height = @floatFromInt(surface.height), .minDepth = 0, .maxDepth = 1 };
     const scissor = c.VkRect2D{ .offset = .{ .x = 0, .y = 0 }, .extent = .{ .width = surface.width, .height = surface.height } };
@@ -1432,8 +1482,7 @@ pub fn uploadBuffer(surface: *VulkanSurface, buffer: *VulkanBuffer, data: ?*cons
     const submit_info = std.mem.zeroInit(c.VkSubmitInfo, .{ .sType = c.VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = @as([*]const c.VkCommandBuffer, @ptrCast(&copy_cmd)) });
     _ = c.vkQueueSubmit(surface.graphics_queue, 1, @as([*]const c.VkSubmitInfo, @ptrCast(&submit_info)), surface.fence);
     _ = c.vkWaitForFences(surface.device, 1, @as([*]const c.VkFence, @ptrCast(&surface.fence)), c.VK_TRUE, std.math.maxInt(u64));
-
-    c.vkDestroyCommandPool(surface.device, copy_pool, null);
+    _ = c.vkResetFences(surface.device, 1, @as([*]const c.VkFence, @ptrCast(&surface.fence)));
     c.vkFreeMemory(surface.device, staging_mem, null);
     c.vkDestroyBuffer(surface.device, staging, null);
 

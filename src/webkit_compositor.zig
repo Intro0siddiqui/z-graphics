@@ -127,3 +127,8 @@ pub export fn ZawraGraphics_CompositorDestroy(state: *CompositorState) void {
 pub export fn ZawraGraphics_CompositorResize(state: *CompositorState, new_width: u32, new_height: u32) bool {
     return resize(state, new_width, new_height);
 }
+
+pub export fn ZawraGraphics_CompositorGetSurfaceHandle(state: *CompositorState) ?zg.ZawraGraphicsHandle {
+    if (state.surface) |s| return s;
+    return null;
+}

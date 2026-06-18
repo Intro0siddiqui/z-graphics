@@ -13,6 +13,7 @@ export fn _force_zgraphics_exports() void {
     _ = compositor.ZawraGraphics_CompositorRenderLayer;
     _ = compositor.ZawraGraphics_CompositorDestroy;
     _ = compositor.ZawraGraphics_CompositorResize;
+    _ = compositor.ZawraGraphics_CompositorGetSurfaceHandle;
 }
 
 /// The internal structure representing a graphics surface.
@@ -100,13 +101,17 @@ pub export fn ZawraGraphics_SwapBuffers(handle: ZawraGraphicsHandle) void {
 /// IOSurface handle (macOS), or shared handle (Windows).
 /// Returns -1 on failure/unsupported. Note that 0 can be a valid file descriptor.
 /// The caller owns the returned file descriptor and must close it.
-pub export fn ZawraGraphics_ExportSurfaceFD(handle: ZawraGraphicsHandle) i32 {
+pub export fn ZawraGraphics_ExportSurfaceFD(handle: ?ZawraGraphicsHandle) i32 {
+    if (handle == null) {
+        std.debug.print("[Z-GRAPHICS] ZawraGraphics_ExportSurfaceFD: handle is null\n", .{});
+        return -1;
+    }
     if (builtin.os.tag == .linux) {
-        return linux_vulkan.exportSurfaceFD(@ptrCast(@alignCast(handle)));
+        return linux_vulkan.exportSurfaceFD(@ptrCast(@alignCast(handle.?)));
     } else if (builtin.os.tag == .macos) {
-        return macos_metal.exportSurfaceFD(@ptrCast(@alignCast(handle)));
+        return macos_metal.exportSurfaceFD(@ptrCast(@alignCast(handle.?)));
     } else if (builtin.os.tag == .windows) {
-        return windows_d3d12.exportSurfaceFD(@ptrCast(@alignCast(handle)));
+        return windows_d3d12.exportSurfaceFD(@ptrCast(@alignCast(handle.?)));
     }
     return -1;
 }
