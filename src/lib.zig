@@ -61,6 +61,35 @@ pub export fn ZG_Initialize() bool {
 }
 pub export fn ZawraGraphics_Initialize() bool { return ZG_Initialize(); }
 
+pub export fn Z_Graphics_Initialize() bool { return ZG_Initialize(); }
+pub export fn Z_Graphics_CreateWindow(width: u32, height: u32) ?ZawraGraphicsHandle {
+    return ZawraGraphics_CreateWindow(width, height);
+}
+pub export fn Z_Graphics_CreateSurface(window: ?ZawraGraphicsHandle, width: u32, height: u32) ?ZawraGraphicsHandle {
+    return ZawraGraphics_CreateSurface(window, width, height);
+}
+pub export fn Z_Graphics_SwapBuffers(handle: ZawraGraphicsHandle) void {
+    ZawraGraphics_SwapBuffers(handle);
+}
+pub export fn Z_Graphics_ExportSurfaceFD(handle: ?ZawraGraphicsHandle) i32 {
+    return ZawraGraphics_ExportSurfaceFD(handle);
+}
+pub export fn Z_Graphics_DestroySurface(handle: ZawraGraphicsHandle) void {
+    ZawraGraphics_DestroySurface(handle);
+}
+pub export fn Z_Graphics_CompositorInitialize(surface: ?ZawraGraphicsHandle, width: u32, height: u32) ?*anyopaque {
+    return ZawraGraphics_CompositorInitialize(surface, width, height);
+}
+pub export fn Z_Graphics_CompositorRenderLayer(state: *anyopaque) bool {
+    return ZawraGraphics_CompositorRenderLayer(state);
+}
+pub export fn Z_Graphics_CompositorDestroy(state: *anyopaque) void {
+    ZawraGraphics_CompositorDestroy(state);
+}
+pub export fn Z_Graphics_CompositorResize(state: *anyopaque, new_width: u32, new_height: u32) bool {
+    return ZawraGraphics_CompositorResize(state, new_width, new_height);
+}
+
 /// Creates a surface for rendering.
 /// Returns an opaque handle to a platform-specific surface object.
 pub export fn ZG_CreateSurface(window: ?ZawraGraphicsHandle, width: u32, height: u32) ?ZawraGraphicsHandle {
@@ -280,9 +309,26 @@ pub export fn ZawraGraphics_UploadTexture(handle: ZawraGraphicsHandle, texture: 
     return false;
 }
 
-// ---------------------------------------------------------
-// BUFFER UPLOAD / DRAW / BIND (Phase 1)
-// ---------------------------------------------------------
+/// Creates a swapchain for the given surface.
+pub export fn ZG_CreateSwapchain(handle: ZawraGraphicsHandle) bool {
+    if (builtin.os.tag == .linux) {
+        // Linux uses createSurface to initialize the swapchain if a window is provided.
+        // This is a no-op if the swapchain is already initialized.
+        return true; 
+    }
+    return false;
+}
+pub export fn ZawraGraphics_CreateSwapchain(handle: ZawraGraphicsHandle) bool { return ZG_CreateSwapchain(handle); }
+
+/// Presents the swapchain images.
+pub export fn ZG_Present(handle: ZawraGraphicsHandle) void {
+    if (builtin.os.tag == .linux) {
+        linux_vulkan.present(@ptrCast(@alignCast(handle)));
+    }
+}
+pub export fn ZawraGraphics_Present(handle: ZawraGraphicsHandle) void { ZG_Present(handle); }
+
+// ... existing code ...
 
 pub export fn ZawraGraphics_UploadBuffer(handle: ZawraGraphicsHandle, buffer: ZawraGraphicsBuffer, data: ?*const anyopaque, dataLen: usize) bool {
     if (builtin.os.tag == .linux) {

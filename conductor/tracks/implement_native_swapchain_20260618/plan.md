@@ -1,7 +1,7 @@
 # Implementation Plan: implement_native_swapchain_20260618
 
 ## Phase 1: API Extension
-- [ ] Task: Extend `lib.zig` to include `ZG_CreateSwapchain` / `ZG_Present`
+- [~] Task: Extend `lib.zig` to include `ZG_CreateSwapchain` / `ZG_Present`
 - [ ] Task: Conductor - User Manual Verification 'Phase 1'
 
 ## Phase 2: macOS/Metal Swapchain
