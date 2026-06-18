@@ -1444,10 +1444,14 @@ pub fn swapBuffers(surface: *VulkanSurface) void {
             .sType = c.VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
             .swapchainCount = 1,
             .pSwapchains = @as([*]const c.VkSwapchainKHR, @ptrCast(&surface.swapchain)),
-            .pImageIndices = @as([*]const u32, @ptrCast(&@as(u32, 0))),
+            .pImageIndices = @as([*]const u32, @ptrCast(&surface.image_index)),
         });
         _ = c.vkQueuePresentKHR(surface.graphics_queue, &present_info);
     }
+}
+
+pub fn present(surface: *VulkanSurface) void {
+    swapBuffers(surface);
 }
 
 pub fn exportSurfaceFD(surface: *VulkanSurface) i32 {

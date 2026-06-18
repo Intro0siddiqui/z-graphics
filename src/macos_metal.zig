@@ -110,9 +110,21 @@ pub fn destroySurface(surface: *MetalSurface) void {
     std.heap.page_allocator.destroy(surface);
 }
 
+pub fn swapBuffers(surface: *MetalSurface) void {
+    if (builtin.os.tag != .macos) return;
+
+    if (surface.view) |layer| {
+        const nextDrawable = sel_registerName("nextDrawable");
+        const drawable = objc_msgSend(layer, nextDrawable);
+        if (drawable) |d| {
+            const present_sel = sel_registerName("present");
+            _ = objc_msgSend(d, present_sel);
+        }
+    }
+}
+
 pub fn createSwapchain(surface: *MetalSurface) bool {
     _ = surface;
-    // Metal uses CAMetalLayer for presentation, which is initialized in createSurface.
     return true;
 }
 
