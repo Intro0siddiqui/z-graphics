@@ -1,20 +1,20 @@
 struct VSInput {
-    float3 position : POSITION;
-    float4 color : COLOR;
+    float2 position : POSITION;
+    float2 texcoord : TEXCOORD0;
 };
 
 struct PSInput {
     float4 position : SV_POSITION;
-    float4 color : COLOR;
+    float2 texcoord : TEXCOORD0;
 };
 
-PSInput VSMain(VSInput input) {
+PSInput VSMain(uint id : SV_VertexID) {
     PSInput output;
-    output.position = float4(input.position, 1.0f);
-    output.color = input.color;
+    output.texcoord = float2((id << 1) & 2, id & 2);
+    output.position = float4(output.texcoord * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0);
     return output;
 }
 
 float4 PSMain(PSInput input) : SV_TARGET {
-    return input.color;
+    return float4(0.2f, 0.8f, 0.4f, 1.0f);
 }

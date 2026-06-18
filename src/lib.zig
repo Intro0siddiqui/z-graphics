@@ -55,14 +55,15 @@ pub const PipelineDesc = extern struct {
 };
 
 /// Initializes the global graphics state.
-pub export fn ZawraGraphics_Initialize() bool {
+pub export fn ZG_Initialize() bool {
     // Basic global initialization logic can go here.
     return true;
 }
+pub export fn ZawraGraphics_Initialize() bool { return ZG_Initialize(); }
 
 /// Creates a surface for rendering.
 /// Returns an opaque handle to a platform-specific surface object.
-pub export fn ZawraGraphics_CreateSurface(window: ?ZawraGraphicsHandle, width: u32, height: u32) ?ZawraGraphicsHandle {
+pub export fn ZG_CreateSurface(window: ?ZawraGraphicsHandle, width: u32, height: u32) ?ZawraGraphicsHandle {
     if (builtin.os.tag == .linux) {
         return @ptrCast(linux_vulkan.createSurface(window, width, height));
     } else if (builtin.os.tag == .macos) {
@@ -73,9 +74,10 @@ pub export fn ZawraGraphics_CreateSurface(window: ?ZawraGraphicsHandle, width: u
     
     return null;
 }
+pub export fn ZawraGraphics_CreateSurface(window: ?ZawraGraphicsHandle, width: u32, height: u32) ?ZawraGraphicsHandle { return ZG_CreateSurface(window, width, height); }
 
 /// Destroys a graphics surface and frees its resources.
-pub export fn ZawraGraphics_DestroySurface(handle: ZawraGraphicsHandle) void {
+pub export fn ZG_DestroySurface(handle: ZawraGraphicsHandle) void {
     if (builtin.os.tag == .linux) {
         linux_vulkan.destroySurface(@ptrCast(@alignCast(handle)));
     } else if (builtin.os.tag == .macos) {
@@ -84,10 +86,11 @@ pub export fn ZawraGraphics_DestroySurface(handle: ZawraGraphicsHandle) void {
         windows_d3d12.destroySurface(@ptrCast(@alignCast(handle)));
     }
 }
+pub export fn ZawraGraphics_DestroySurface(handle: ZawraGraphicsHandle) void { ZG_DestroySurface(handle); }
 
 /// Swaps the backbuffer to the frontbuffer, or flushes the offscreen render target
 /// indicating the frame is complete.
-pub export fn ZawraGraphics_SwapBuffers(handle: ZawraGraphicsHandle) void {
+pub export fn ZG_SwapBuffers(handle: ZawraGraphicsHandle) void {
     if (builtin.os.tag == .linux) {
         linux_vulkan.swapBuffers(@ptrCast(@alignCast(handle)));
     } else if (builtin.os.tag == .macos) {
@@ -96,6 +99,7 @@ pub export fn ZawraGraphics_SwapBuffers(handle: ZawraGraphicsHandle) void {
         windows_d3d12.swapBuffers(@ptrCast(@alignCast(handle)));
     }
 }
+pub export fn ZawraGraphics_SwapBuffers(handle: ZawraGraphicsHandle) void { ZG_SwapBuffers(handle); }
 
 /// Exports the rendered surface memory as a file descriptor (Linux/DMA-BUF),
 /// IOSurface handle (macOS), or shared handle (Windows).
@@ -267,6 +271,13 @@ pub export fn ZawraGraphics_DestroyTexture(handle: ZawraGraphicsHandle, texture:
     } else if (builtin.os.tag == .windows) {
         windows_d3d12.destroyTexture(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(texture.?)));
     }
+}
+
+pub export fn ZawraGraphics_UploadTexture(handle: ZawraGraphicsHandle, texture: ZawraGraphicsTexture, data: ?*const anyopaque, dataLen: usize) bool {
+    if (builtin.os.tag == .linux) {
+        return linux_vulkan.uploadTexture(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(texture)), data, dataLen);
+    }
+    return false;
 }
 
 // ---------------------------------------------------------

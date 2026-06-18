@@ -4,77 +4,78 @@ const zgraphics = @import("lib.zig");
 pub fn main() !void {
     const initialized = zgraphics.ZawraGraphics_Initialize();
     if (!initialized) {
-        std.debug.print("Failed to initialize ZawraGraphics\n", .{});
+        std.debug.print("Failed to initialize z-graphics\n", .{});
         std.process.exit(1);
     }
-    std.debug.print("ZawraGraphics initialized successfully\n", .{});
+    std.debug.print("z-graphics initialized successfully\n", .{});
 
-    const surface = zgraphics.ZawraGraphics_CreateSurface(null, 800, 600);
-    if (surface == null) {
-        std.debug.print("Surface creation returned null (this is expected if Vulkan is not fully available on CI, but means backend is still stubbed/failing)\n", .{});
-    } else {
-        std.debug.print("Surface created successfully\n", .{});
+    const window = zgraphics.ZawraGraphics_CreateWindow(474, 323);
+    const surface = zgraphics.ZawraGraphics_CreateSurface(window, 474, 323) orelse {
+        std.debug.print("Surface creation failed\n", .{});
+        return;
+    };
 
-        const buffer = zgraphics.ZawraGraphics_CreateBuffer(surface.?, 1024, zgraphics.BufferType.Vertex);
-        if (buffer != null) {
-            std.debug.print("Buffer allocated successfully\n", .{});
-            
-            const test_data = [_]f32{ 1.0, 2.0, 3.0, 4.0 };
-            const uploaded = zgraphics.ZawraGraphics_UploadBuffer(surface.?, buffer.?, &test_data, @sizeOf(@TypeOf(test_data)));
-            if (uploaded) {
-                std.debug.print("Buffer data uploaded successfully\n", .{});
-            } else {
-                std.debug.print("Buffer data upload failed (or was stubbed)\n", .{});
-            }
+    // 1. Load image data
+    const pixel_data = @embedFile("pixels.raw");
+    std.debug.print("Loaded image data, size: {d}\n", .{pixel_data.len});
 
-            zgraphics.ZawraGraphics_DestroyBuffer(surface.?, buffer.?);
-        }
-        const cmd = zgraphics.ZawraGraphics_BeginCommandBuffer(surface.?);
-        if (cmd != null) {
-            std.debug.print("Command buffer started successfully\n", .{});
-            
-            // Test Pipeline Creation (Using embedded shaders)
-            const shaders = @import("shaders");
-            const vert_code = shaders.vert;
-            const frag_code = shaders.frag;
+    // 2. Create Texture
+    const tex_desc = zgraphics.ZawraGraphicsTextureDesc{
+        .format = .R8G8B8A8_Unorm,
+        .width = 474,
+        .height = 323,
+        .external_handle = null,
+    };
+    std.debug.print("Creating texture...\n", .{});
+    const texture = zgraphics.ZawraGraphics_CreateTexture(surface, &tex_desc) orelse {
+        std.debug.print("Texture creation failed\n", .{});
+        return;
+    };
+    std.debug.print("Texture created. Uploading...\n", .{});
+    const uploaded = zgraphics.ZawraGraphics_UploadTexture(surface, texture, pixel_data.ptr, pixel_data.len);
+    std.debug.print("Texture uploaded: {}\n", .{uploaded});
 
-            const pipeline_desc = zgraphics.PipelineDesc{
-                .vertex_shader = vert_code.ptr,
-                .vertex_shader_len = vert_code.len,
-                .pixel_shader = frag_code.ptr,
-                .pixel_shader_len = frag_code.len,
-            };
-            
-            const pipeline = zgraphics.ZawraGraphics_CreatePipeline(surface.?, &pipeline_desc);
-            if (pipeline != null) {
-                std.debug.print("Pipeline created successfully\n", .{});
-                zgraphics.ZawraGraphics_CmdBindPipeline(cmd.?, pipeline.?);
-                std.debug.print("Pipeline bound successfully\n", .{});
-                
-                zgraphics.ZawraGraphics_CmdDraw(cmd.?, 3, 1, 0, 0);
-                std.debug.print("Draw command issued successfully\n", .{});
+    const shaders = @import("shaders");
+    const pipeline_desc = zgraphics.PipelineDesc{
+        .vertex_shader = shaders.vert.ptr,
+        .vertex_shader_len = shaders.vert.len,
+        .pixel_shader = shaders.frag.ptr,
+        .pixel_shader_len = shaders.frag.len,
+    };
+    std.debug.print("Creating pipeline...\n", .{});
+    const pipeline = zgraphics.ZawraGraphics_CreatePipeline(surface, &pipeline_desc).?;
 
-                zgraphics.ZawraGraphics_DestroyPipeline(surface.?, pipeline.?);
-                std.debug.print("Pipeline destroyed successfully\n", .{});
-            } else {
-                std.debug.print("Pipeline creation returned null (this is expected if renderPass is missing/stubbed)\n", .{});
-            }
+    // 3. Render loop
+    std.debug.print("Starting render loop for 10 seconds...\n", .{});
+    var start_ts: std.os.linux.timespec = undefined;
+    _ = std.os.linux.clock_gettime(std.os.linux.CLOCK.MONOTONIC, &start_ts);
+    const start_time = start_ts.sec;
 
-            zgraphics.ZawraGraphics_CmdClearColor(cmd.?, 1.0, 0.0, 0.0, 1.0);
-            zgraphics.ZawraGraphics_SubmitCommandBuffer(surface.?, cmd.?);
-            std.debug.print("Command buffer submitted successfully\n", .{});
-        }
+    var frame_count: usize = 0;
+    while (true) : (frame_count += 1) {
+        var curr_ts: std.os.linux.timespec = undefined;
+        _ = std.os.linux.clock_gettime(std.os.linux.CLOCK.MONOTONIC, &curr_ts);
+        if (curr_ts.sec - start_time >= 10) break;
 
-        zgraphics.ZawraGraphics_SwapBuffers(surface.?);
-        std.debug.print("Buffers swapped successfully\n", .{});
-        zgraphics.ZawraGraphics_DestroySurface(surface.?);
-        std.debug.print("Surface destroyed successfully\n", .{});
+        const cmd = zgraphics.ZawraGraphics_BeginCommandBuffer(surface).?;
+        
+        zgraphics.ZawraGraphics_CmdClearColor(cmd, 0.0, 0.0, 0.0, 1.0);
+        
+        zgraphics.ZawraGraphics_CmdBindPipeline(cmd, pipeline);
+        // Draw 3 vertices to generate the fullscreen triangle via SV_VertexID
+        zgraphics.ZawraGraphics_CmdDraw(cmd, 3, 1, 0, 0);
+        
+        zgraphics.ZawraGraphics_SubmitCommandBuffer(surface, cmd);
+        zgraphics.ZawraGraphics_SwapBuffers(surface);
+
+        // Primitive pacing (~60fps)
+        var spin: usize = 0;
+        while (spin < 5_000_000) : (spin += 1) {}
     }
+    
+    std.debug.print("Render loop finished after 10 seconds. Frames rendered: {d}\n", .{frame_count});
 
-    const window = zgraphics.ZawraGraphics_CreateWindow(800, 600);
-    if (window != null) {
-        std.debug.print("Window created successfully\n", .{});
-    } else {
-        std.debug.print("Window creation returned null (this is expected in some headless CI environments without X11/Cocoa)\n", .{});
-    }
+    zgraphics.ZawraGraphics_DestroyPipeline(surface, pipeline);
+    zgraphics.ZawraGraphics_DestroyTexture(surface, texture);
+    zgraphics.ZawraGraphics_DestroySurface(surface);
 }

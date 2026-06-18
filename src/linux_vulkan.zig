@@ -20,10 +20,23 @@ const c = struct {
     pub const VkBuffer = ?*anyopaque;
     pub const VkCommandPool = ?*anyopaque;
     pub const VkShaderModule = ?*anyopaque;
+    pub const VkDescriptorSetLayout = ?*anyopaque;
+    pub const VkDescriptorPool = ?*anyopaque;
+    pub const VkDescriptorSet = ?*anyopaque;
+    pub const VkSampler = ?*anyopaque;
     pub const VkFormat = u32;
     pub const VkResult = i32;
     pub const VkStructureType = u32;
     pub const VkBufferUsageFlags = u32;
+
+    pub const VkSemaphore = ?*anyopaque;
+    pub const VkSemaphoreCreateInfo = extern struct {
+        sType: VkStructureType = 9, // VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO
+        pNext: ?*const anyopaque = null,
+        flags: u32 = 0,
+    };
+    pub extern "vulkan" fn vkCreateSemaphore(device: VkDevice, pCreateInfo: *const VkSemaphoreCreateInfo, pAllocator: ?*const anyopaque, pSemaphore: *VkSemaphore) callconv(.c) VkResult;
+    pub extern "vulkan" fn vkDestroySemaphore(device: VkDevice, semaphore: VkSemaphore, pAllocator: ?*const anyopaque) callconv(.c) void;
 
     pub const VK_SUCCESS = 0;
     pub const VK_TRUE = 1;
@@ -520,6 +533,27 @@ const c = struct {
     pub extern "vulkan" fn vkCmdBindVertexBuffers(commandBuffer: VkCommandBuffer, firstBinding: u32, bindingCount: u32, pBuffers: [*]const VkBuffer, pOffsets: [*]const u64) callconv(.c) void;
     pub extern "vulkan" fn vkCmdDraw(commandBuffer: VkCommandBuffer, vertexCount: u32, instanceCount: u32, firstVertex: u32, firstInstance: u32) callconv(.c) void;
     pub extern "vulkan" fn vkCmdCopyBuffer(commandBuffer: VkCommandBuffer, srcBuffer: VkBuffer, dstBuffer: VkBuffer, regionCount: u32, pRegions: [*]const VkBufferCopy) callconv(.c) void;
+    pub extern "vulkan" fn vkCmdPipelineBarrier(commandBuffer: VkCommandBuffer, srcStageMask: u32, dstStageMask: u32, dependencyFlags: u32, memoryBarrierCount: u32, pMemoryBarriers: ?[*]const VkMemoryBarrier, bufferMemoryBarrierCount: u32, pBufferMemoryBarriers: ?[*]const VkBufferMemoryBarrier, imageMemoryBarrierCount: u32, pImageMemoryBarriers: ?[*]const VkImageMemoryBarrier) callconv(.c) void;
+
+    pub const VkMemoryBarrier = extern struct {
+        sType: VkStructureType = 43,
+        pNext: ?*const anyopaque = null,
+        srcAccessMask: u32,
+        dstAccessMask: u32,
+    };
+
+    pub const VkBufferMemoryBarrier = extern struct {
+        sType: VkStructureType = 44,
+        pNext: ?*const anyopaque = null,
+        srcAccessMask: u32,
+        dstAccessMask: u32,
+        srcQueueFamilyIndex: u32 = 4294967295,
+        dstQueueFamilyIndex: u32 = 4294967295,
+        buffer: VkBuffer,
+        offset: u64 = 0,
+        size: u64 = 0,
+    };
+    pub extern "vulkan" fn vkCmdCopyBufferToImage(commandBuffer: VkCommandBuffer, srcBuffer: VkBuffer, dstImage: VkImage, dstImageLayout: u32, regionCount: u32, pRegions: [*]const VkBufferImageCopy) callconv(.c) void;
     pub extern "vulkan" fn vkCreateFramebuffer(device: VkDevice, pCreateInfo: *const VkFramebufferCreateInfo, pAllocator: ?*const anyopaque, pFramebuffer: *VkFramebuffer) callconv(.c) VkResult;
     pub extern "vulkan" fn vkDestroyFramebuffer(device: VkDevice, framebuffer: VkFramebuffer, pAllocator: ?*const anyopaque) callconv(.c) void;
     pub extern "vulkan" fn vkResetFences(device: VkDevice, fenceCount: u32, pFences: [*]const VkFence) callconv(.c) VkResult;
@@ -535,6 +569,15 @@ const c = struct {
     pub extern "vulkan" fn vkDestroyShaderModule(device: VkDevice, shaderModule: VkShaderModule, pAllocator: ?*const anyopaque) callconv(.c) void;
     pub extern "vulkan" fn vkCreateCommandPool(device: VkDevice, pCreateInfo: *const VkCommandPoolCreateInfo, pAllocator: ?*const anyopaque, pCommandPool: *VkCommandPool) callconv(.c) VkResult;
     pub extern "vulkan" fn vkDestroyCommandPool(device: VkDevice, commandPool: VkCommandPool, pAllocator: ?*const anyopaque) callconv(.c) void;
+    pub extern "vulkan" fn vkCreateDescriptorSetLayout(device: VkDevice, pCreateInfo: *const VkDescriptorSetLayoutCreateInfo, pAllocator: ?*const anyopaque, pSetLayout: *VkDescriptorSetLayout) callconv(.c) VkResult;
+    pub extern "vulkan" fn vkDestroyDescriptorSetLayout(device: VkDevice, descriptorSetLayout: VkDescriptorSetLayout, pAllocator: ?*const anyopaque) callconv(.c) void;
+    pub extern "vulkan" fn vkCreateDescriptorPool(device: VkDevice, pCreateInfo: *const VkDescriptorPoolCreateInfo, pAllocator: ?*const anyopaque, pDescriptorPool: *VkDescriptorPool) callconv(.c) VkResult;
+    pub extern "vulkan" fn vkDestroyDescriptorPool(device: VkDevice, descriptorPool: VkDescriptorPool, pAllocator: ?*const anyopaque) callconv(.c) void;
+    pub extern "vulkan" fn vkAllocateDescriptorSets(device: VkDevice, pAllocateInfo: *const VkDescriptorSetAllocateInfo, pDescriptorSets: *VkDescriptorSet) callconv(.c) VkResult;
+    pub extern "vulkan" fn vkUpdateDescriptorSets(device: VkDevice, descriptorWriteCount: u32, pDescriptorWrites: [*]const VkWriteDescriptorSet, descriptorCopyCount: u32, pDescriptorCopies: ?*const anyopaque) callconv(.c) void;
+    pub extern "vulkan" fn vkCmdBindDescriptorSets(commandBuffer: VkCommandBuffer, pipelineBindPoint: u32, layout: VkPipelineLayout, firstSet: u32, descriptorSetCount: u32, pDescriptorSets: [*]const VkDescriptorSet, dynamicOffsetCount: u32, pDynamicOffsets: ?[*]const u32) callconv(.c) void;
+    pub extern "vulkan" fn vkCreateSampler(device: VkDevice, pCreateInfo: *const VkSamplerCreateInfo, pAllocator: ?*const anyopaque, pSampler: *VkSampler) callconv(.c) VkResult;
+    pub extern "vulkan" fn vkDestroySampler(device: VkDevice, sampler: VkSampler, pAllocator: ?*const anyopaque) callconv(.c) void;
 
     pub const VK_SHADER_STAGE_VERTEX_BIT = 1;
     pub const VK_SHADER_STAGE_FRAGMENT_BIT = 16;
@@ -551,9 +594,193 @@ const c = struct {
     pub const VK_FORMAT_R8G8B8A8_UNORM = 37;
     pub const VK_IMAGE_TILING_OPTIMAL = 0;
     pub const VK_IMAGE_LAYOUT_UNDEFINED = 0;
+    pub const VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL = 7;
+    pub const VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL = 5;
     pub const VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT = 16;
     pub const VK_IMAGE_USAGE_TRANSFER_SRC_BIT = 1;
+    pub const VK_IMAGE_USAGE_TRANSFER_DST_BIT = 2;
+    pub const VK_IMAGE_USAGE_SAMPLED_BIT = 1 << 5;
     pub const VK_IMAGE_ASPECT_COLOR_BIT = 1;
+
+    pub const VK_FORMAT_B8G8R8A8_UNORM = 44;
+    pub const VK_COLOR_SPACE_SRGB_NONLINEAR_KHR = 0;
+    pub const VK_PRESENT_MODE_FIFO_KHR = 2;
+
+    pub const VkExtent2D = extern struct {
+        width: u32,
+        height: u32,
+    };
+
+    pub const VkSurfaceCapabilitiesKHR = extern struct {
+        minImageCount: u32,
+        maxImageCount: u32,
+        currentExtent: VkExtent2D,
+        minImageExtent: VkExtent2D,
+        maxImageExtent: VkExtent2D,
+        maxImageArrayLayers: u32,
+        supportedTransforms: u32,
+        currentTransform: u32,
+        supportedCompositeAlpha: u32,
+        supportedUsageFlags: u32,
+    };
+
+    pub const VkSurfaceFormatKHR = extern struct {
+        format: VkFormat,
+        colorSpace: u32,
+    };
+
+    pub const VkSwapchainCreateInfoKHR = extern struct {
+        sType: VkStructureType = 1000001000, // VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR
+        pNext: ?*const anyopaque = null,
+        flags: u32 = 0,
+        surface: VkSurfaceKHR,
+        minImageCount: u32,
+        imageFormat: VkFormat,
+        imageColorSpace: u32,
+        imageExtent: VkExtent2D,
+        imageArrayLayers: u32,
+        imageUsage: u32,
+        imageSharingMode: u32,
+        queueFamilyIndexCount: u32 = 0,
+        pQueueFamilyIndices: ?[*]const u32 = null,
+        preTransform: u32,
+        compositeAlpha: u32,
+        presentMode: u32,
+        clipped: u32 = 1, // VK_TRUE
+        oldSwapchain: VkSwapchainKHR = null,
+    };
+
+    pub extern "vulkan" fn vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice: VkPhysicalDevice, surface: VkSurfaceKHR, pSurfaceCapabilities: *VkSurfaceCapabilitiesKHR) callconv(.c) VkResult;
+    pub extern "vulkan" fn vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice: VkPhysicalDevice, surface: VkSurfaceKHR, pSurfaceFormatCount: *u32, pSurfaceFormats: ?[*]VkSurfaceFormatKHR) callconv(.c) VkResult;
+    pub extern "vulkan" fn vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice: VkPhysicalDevice, surface: VkSurfaceKHR, pPresentModeCount: *u32, pPresentModes: ?[*]u32) callconv(.c) VkResult;
+    pub extern "vulkan" fn vkCreateSwapchainKHR(device: VkDevice, pCreateInfo: *const VkSwapchainCreateInfoKHR, pAllocator: ?*const anyopaque, pSwapchain: *VkSwapchainKHR) callconv(.c) VkResult;
+    pub extern "vulkan" fn vkDestroySwapchainKHR(device: VkDevice, swapchain: VkSwapchainKHR, pAllocator: ?*const anyopaque) callconv(.c) void;
+    pub extern "vulkan" fn vkGetSwapchainImagesKHR(device: VkDevice, swapchain: VkSwapchainKHR, pSwapchainImageCount: *u32, pSwapchainImages: ?[*]VkImage) callconv(.c) VkResult;
+    pub extern "vulkan" fn vkAcquireNextImageKHR(device: VkDevice, swapchain: VkSwapchainKHR, timeout: u64, semaphore: VkFence, fence: VkFence, pImageIndex: *u32) callconv(.c) VkResult;
+
+    pub const VK_ACCESS_TRANSFER_WRITE_BIT = 4096;
+    pub const VK_ACCESS_SHADER_READ_BIT = 32;
+    pub const VK_PIPELINE_STAGE_TRANSFER_BIT = 4096;
+    pub const VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT = 128;
+    pub const VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT = 1;
+    pub const VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT = 1024;
+
+    pub const VkBufferImageCopy = extern struct {
+        bufferOffset: u64 = 0,
+        bufferRowLength: u32 = 0,
+        bufferImageHeight: u32 = 0,
+        imageSubresource: VkImageSubresourceLayers,
+        imageOffset: extern struct { x: i32 = 0, y: i32 = 0, z: i32 = 0 } = .{ .x = 0, .y = 0, .z = 0 },
+        imageExtent: extern struct { width: u32, height: u32, depth: u32 } = .{ .width = 0, .height = 0, .depth = 0 },
+    };
+
+    pub const VkImageSubresourceLayers = extern struct {
+        aspectMask: u32,
+        mipLevel: u32 = 0,
+        baseArrayLayer: u32 = 0,
+        layerCount: u32 = 1,
+    };
+
+    pub const VkImageMemoryBarrier = extern struct {
+        sType: VkStructureType = 45, // VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER
+        pNext: ?*const anyopaque = null,
+        srcAccessMask: u32,
+        dstAccessMask: u32,
+        oldLayout: u32,
+        newLayout: u32,
+        srcQueueFamilyIndex: u32 = 4294967295, // VK_QUEUE_FAMILY_IGNORED
+        dstQueueFamilyIndex: u32 = 4294967295, // VK_QUEUE_FAMILY_IGNORED
+        image: VkImage,
+        subresourceRange: VkImageSubresourceRange,
+    };
+
+    pub const VkImageSubresourceRange = extern struct {
+        aspectMask: u32,
+        baseMipLevel: u32 = 0,
+        levelCount: u32 = 1,
+        baseArrayLayer: u32 = 0,
+        layerCount: u32 = 1,
+    };
+
+    pub const VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER = 1;
+
+    pub const VkDescriptorSetLayoutBinding = extern struct {
+        binding: u32,
+        descriptorType: u32,
+        descriptorCount: u32,
+        stageFlags: u32,
+        pImmutableSamplers: ?[*]const VkSampler = null,
+    };
+
+    pub const VkDescriptorSetLayoutCreateInfo = extern struct {
+        sType: VkStructureType = 32,
+        pNext: ?*const anyopaque = null,
+        flags: u32 = 0,
+        bindingCount: u32,
+        pBindings: [*]const VkDescriptorSetLayoutBinding,
+    };
+
+    pub const VkDescriptorPoolSize = extern struct {
+        type: u32,
+        descriptorCount: u32,
+    };
+
+    pub const VkDescriptorPoolCreateInfo = extern struct {
+        sType: VkStructureType = 33,
+        pNext: ?*const anyopaque = null,
+        flags: u32 = 0,
+        maxSets: u32,
+        poolSizeCount: u32,
+        pPoolSizes: [*]const VkDescriptorPoolSize,
+    };
+
+    pub const VkDescriptorSetAllocateInfo = extern struct {
+        sType: VkStructureType = 34,
+        pNext: ?*const anyopaque = null,
+        descriptorPool: VkDescriptorPool,
+        descriptorSetCount: u32,
+        pSetLayouts: [*]const VkDescriptorSetLayout,
+    };
+
+    pub const VkDescriptorImageInfo = extern struct {
+        sampler: VkSampler,
+        imageView: VkImageView,
+        imageLayout: u32,
+    };
+
+    pub const VkWriteDescriptorSet = extern struct {
+        sType: VkStructureType = 35,
+        pNext: ?*const anyopaque = null,
+        dstSet: VkDescriptorSet,
+        dstBinding: u32,
+        dstArrayElement: u32,
+        descriptorCount: u32,
+        descriptorType: u32,
+        pImageInfo: ?[*]const VkDescriptorImageInfo = null,
+        pBufferInfo: ?*const anyopaque = null,
+        pTexelBufferView: ?*const anyopaque = null,
+    };
+
+    pub const VkSamplerCreateInfo = extern struct {
+        sType: VkStructureType = 31,
+        pNext: ?*const anyopaque = null,
+        flags: u32 = 0,
+        magFilter: u32,
+        minFilter: u32,
+        mipmapMode: u32,
+        addressModeU: u32,
+        addressModeV: u32,
+        addressModeW: u32,
+        mipLodBias: f32,
+        anisotropyEnable: u32,
+        maxAnisotropy: f32,
+        compareEnable: u32,
+        compareOp: u32,
+        minLod: f32,
+        maxLod: f32,
+        borderColor: u32,
+        unnormalizedCoordinates: u32,
+    };
     pub const VK_ATTACHMENT_LOAD_OP_CLEAR = 1;
     pub const VK_ATTACHMENT_STORE_OP_STORE = 0;
     pub const VK_ATTACHMENT_LOAD_OP_DONT_CARE = 2;
@@ -580,7 +807,6 @@ const c = struct {
     pub const VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT = 1 << 0;
     pub const VK_MEMORY_PROPERTY_HOST_COHERENT_BIT = 1 << 1;
     pub const VK_SUBPASS_CONTENTS_INLINE = 0;
-    pub const VK_IMAGE_USAGE_SAMPLED_BIT = 1 << 5;
     pub const VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT = 1 << 17;
     pub const VK_FORMAT_R32G32_SFLOAT = 91;
     pub const VK_VERTEX_INPUT_RATE_VERTEX = 0;
@@ -639,11 +865,19 @@ pub const VulkanSurface = struct {
     framebuffer: c.VkFramebuffer,
     fence: c.VkFence,
     swapchain: c.VkSwapchainKHR,
+    swapchain_images: [3]c.VkImage,
+    swapchain_image_views: [3]c.VkImageView,
+    swapchain_framebuffers: [3]c.VkFramebuffer,
+    image_available_semaphore: c.VkFence, // Using VkFence alias for VkSemaphore temporarily as they are both opaque pointers
+    render_finished_semaphore: c.VkFence,
+    image_count: u32,
+    image_index: u32,
     external_memory_enabled: bool,
     window: ?*anyopaque, // X11 Window
     x_display: ?*Display, // X11 Display
     width: u32,
     height: u32,
+    descriptor_pool: c.VkDescriptorPool = null,
 };
 
 // --- X11 FFI ---
@@ -870,6 +1104,7 @@ pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*VulkanSurfa
         var surface: c.VkSurfaceKHR = null;
         var x_display: ?*Display = null;
         if (window) |w| {
+            external_memory_enabled = false; // Disable offscreen export if we have a window to render to
             const state = @as(*X11WindowState, @ptrCast(@alignCast(w)));
             const x_window: usize = state.window;
             x_display = state.display;
@@ -1045,7 +1280,56 @@ pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*VulkanSurfa
             break :blk null;
         }
 
+        var swapchain: c.VkSwapchainKHR = null;
+        if (!external_memory_enabled and window != null) {
+            var surface_caps: c.VkSurfaceCapabilitiesKHR = undefined;
+            _ = c.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface, &surface_caps);
+
+            var format_count: u32 = 0;
+            _ = c.vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, &format_count, null);
+            // In a real app, query formats. Hardcoding B8G8R8A8_UNORM for simplicity in swapchain creation
+            
+            const swapchain_info = std.mem.zeroInit(c.VkSwapchainCreateInfoKHR, .{
+                .sType = 1000001000, // VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR
+                .surface = surface,
+                .minImageCount = if (surface_caps.minImageCount > 0) surface_caps.minImageCount else 2,
+                .imageFormat = c.VK_FORMAT_B8G8R8A8_UNORM, // Usually optimal for swapchain
+                .imageColorSpace = c.VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
+                .imageExtent = .{ .width = width, .height = height },
+                .imageArrayLayers = 1,
+                .imageUsage = c.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+                .imageSharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
+                .preTransform = surface_caps.currentTransform,
+                .compositeAlpha = 1, // VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR
+                .presentMode = c.VK_PRESENT_MODE_FIFO_KHR,
+                .clipped = 1,
+                .oldSwapchain = null,
+            });
+
+            if (c.vkCreateSwapchainKHR(device, &swapchain_info, null, &swapchain) != c.VK_SUCCESS) {
+                std.debug.print("[Z-GRAPHICS] createSurface: vkCreateSwapchainKHR failed\n", .{});
+            } else {
+                std.debug.print("[Z-GRAPHICS] createSurface: Swapchain created successfully\n", .{});
+            }
+        }
+
+        const pool_sizes = [_]c.VkDescriptorPoolSize{
+            .{ .type = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 100 },
+        };
+        const pool_info = c.VkDescriptorPoolCreateInfo{
+            .sType = 33, // VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO
+            .maxSets = 100,
+            .poolSizeCount = pool_sizes.len,
+            .pPoolSizes = &pool_sizes,
+        };
+        var descriptor_pool: c.VkDescriptorPool = null;
+        if (c.vkCreateDescriptorPool(device, &pool_info, null, &descriptor_pool) != c.VK_SUCCESS) {
+            std.debug.print("[Z-GRAPHICS] createSurface: Warning - failed to create descriptor pool\n", .{});
+        }
+
         const surface_obj = std.heap.page_allocator.create(VulkanSurface) catch {
+            if (descriptor_pool != null) c.vkDestroyDescriptorPool(device, descriptor_pool, null);
+            if (swapchain != null) c.vkDestroySwapchainKHR(device, swapchain, null);
             c.vkDestroyFence(device, fence, null);
             c.vkDestroyFramebuffer(device, framebuffer, null);
             c.vkDestroyRenderPass(device, render_pass, null);
@@ -1056,6 +1340,46 @@ pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*VulkanSurfa
             c.vkDestroyInstance(instance, null);
             break :blk null;
         };
+
+        var swapchain_images: [3]c.VkImage = undefined;
+        var swapchain_image_views: [3]c.VkImageView = undefined;
+        var swapchain_framebuffers: [3]c.VkFramebuffer = undefined;
+        var image_count: u32 = 0;
+        var image_available_semaphore: c.VkSemaphore = null;
+        var render_finished_semaphore: c.VkSemaphore = null;
+
+        if (swapchain != null) {
+            _ = c.vkGetSwapchainImagesKHR(device, swapchain, &image_count, null);
+            if (image_count > 3) image_count = 3;
+            _ = c.vkGetSwapchainImagesKHR(device, swapchain, &image_count, @ptrCast(&swapchain_images));
+            
+            for (0..image_count) |i| {
+                const sc_view_info = std.mem.zeroInit(c.VkImageViewCreateInfo, .{
+                    .sType = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+                    .image = swapchain_images[i],
+                    .viewType = c.VK_IMAGE_VIEW_TYPE_2D,
+                    .format = c.VK_FORMAT_B8G8R8A8_UNORM,
+                    .subresourceRange = .{ .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1 },
+                });
+                _ = c.vkCreateImageView(device, &sc_view_info, null, &swapchain_image_views[i]);
+
+                const fb_info = std.mem.zeroInit(c.VkFramebufferCreateInfo, .{
+                    .sType = c.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+                    .renderPass = render_pass,
+                    .attachmentCount = 1,
+                    .pAttachments = @as([*]const c.VkImageView, @ptrCast(&swapchain_image_views[i])),
+                    .width = width,
+                    .height = height,
+                    .layers = 1,
+                });
+                _ = c.vkCreateFramebuffer(device, &fb_info, null, &swapchain_framebuffers[i]);
+            }
+            
+            const sema_info = std.mem.zeroInit(c.VkSemaphoreCreateInfo, .{ .sType = 9 });
+            _ = c.vkCreateSemaphore(device, &sema_info, null, &image_available_semaphore);
+            _ = c.vkCreateSemaphore(device, &sema_info, null, &render_finished_semaphore);
+        }
+
         surface_obj.* = .{
             .instance = instance,
             .physical_device = physical_device,
@@ -1069,12 +1393,20 @@ pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*VulkanSurfa
             .render_pass = render_pass,
             .framebuffer = framebuffer,
             .fence = fence,
-            .swapchain = null,
+            .swapchain = swapchain,
+            .swapchain_images = swapchain_images,
+            .swapchain_image_views = swapchain_image_views,
+            .swapchain_framebuffers = swapchain_framebuffers,
+            .image_available_semaphore = @ptrCast(image_available_semaphore),
+            .render_finished_semaphore = @ptrCast(render_finished_semaphore),
+            .image_count = image_count,
+            .image_index = 0,
             .external_memory_enabled = external_memory_enabled,
             .window = window,
             .x_display = x_display,
             .width = width,
             .height = height,
+            .descriptor_pool = descriptor_pool,
         };
 
         break :blk surface_obj;
@@ -1083,6 +1415,15 @@ pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*VulkanSurfa
 
 pub fn destroySurface(surface: *VulkanSurface) void {
     if (builtin.os.tag != .linux) return;
+    if (surface.swapchain != null) {
+        for (0..surface.image_count) |i| {
+            c.vkDestroyFramebuffer(surface.device, surface.swapchain_framebuffers[i], null);
+            c.vkDestroyImageView(surface.device, surface.swapchain_image_views[i], null);
+        }
+        c.vkDestroySemaphore(surface.device, @ptrCast(surface.image_available_semaphore), null);
+        c.vkDestroySemaphore(surface.device, @ptrCast(surface.render_finished_semaphore), null);
+        c.vkDestroySwapchainKHR(surface.device, surface.swapchain, null);
+    }
     if (surface.x_display) |dpy| _ = XCloseDisplay(dpy);
     if (surface.framebuffer != null) c.vkDestroyFramebuffer(surface.device, surface.framebuffer, null);
     if (surface.render_pass != null) c.vkDestroyRenderPass(surface.device, surface.render_pass, null);
@@ -1090,6 +1431,7 @@ pub fn destroySurface(surface: *VulkanSurface) void {
     if (surface.image != null) c.vkDestroyImage(surface.device, surface.image, null);
     if (surface.image_memory != null) c.vkFreeMemory(surface.device, surface.image_memory, null);
     if (surface.fence != null) c.vkDestroyFence(surface.device, surface.fence, null);
+    if (surface.descriptor_pool != null) c.vkDestroyDescriptorPool(surface.device, surface.descriptor_pool, null);
     if (surface.device != null) c.vkDestroyDevice(surface.device, null);
     if (surface.instance != null) c.vkDestroyInstance(surface.instance, null);
     std.heap.page_allocator.destroy(surface);
@@ -1097,7 +1439,6 @@ pub fn destroySurface(surface: *VulkanSurface) void {
 
 pub fn swapBuffers(surface: *VulkanSurface) void {
     if (builtin.os.tag != .linux) return;
-    if (surface.fence != null) _ = c.vkWaitForFences(surface.device, 1, @as([*]const c.VkFence, @ptrCast(&surface.fence)), c.VK_TRUE, std.math.maxInt(u64));
     if (surface.swapchain != null) {
         const present_info = std.mem.zeroInit(c.VkPresentInfoKHR, .{
             .sType = c.VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
@@ -1244,6 +1585,11 @@ pub fn beginCommandBuffer(surface: *VulkanSurface) ?*VulkanCommandBuffer {
         c.vkDestroyCommandPool(surface.device, pool, null);
         return null;
     }
+    
+    if (!surface.external_memory_enabled and surface.swapchain != null) {
+        _ = c.vkAcquireNextImageKHR(surface.device, surface.swapchain, std.math.maxInt(u64), surface.image_available_semaphore, null, &surface.image_index);
+    }
+    
     const begin_info = std.mem.zeroInit(c.VkCommandBufferBeginInfo, .{ .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, .flags = 0 });
     if (c.vkBeginCommandBuffer(cmd, &begin_info) != c.VK_SUCCESS) {
         c.vkDestroyCommandPool(surface.device, pool, null);
@@ -1259,10 +1605,16 @@ pub fn cmdClearColor(cmd: *VulkanCommandBuffer, r: f32, g: f32, b: f32, a: f32) 
     if (cmd.render_pass_began) return;
     const surface = cmd.surface;
     const clear_value: c.VkClearValue = .{ .color = .{ .float32 = .{ r, g, b, a } } };
+    
+    var fb = surface.framebuffer;
+    if (!surface.external_memory_enabled and surface.swapchain != null) {
+        fb = surface.swapchain_framebuffers[surface.image_index];
+    }
+    
     const begin_info = std.mem.zeroInit(c.VkRenderPassBeginInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
         .renderPass = surface.render_pass,
-        .framebuffer = surface.framebuffer,
+        .framebuffer = fb,
         .renderArea = .{ .offset = .{ .x = 0, .y = 0 }, .extent = .{ .width = surface.width, .height = surface.height } },
         .clearValueCount = 1,
         .pClearValues = @as([*]const c.VkClearValue, @ptrCast(&clear_value)),
@@ -1275,7 +1627,19 @@ pub fn submitCommandBuffer(surface: *VulkanSurface, cmd: *VulkanCommandBuffer) v
     if (builtin.os.tag != .linux) return;
     if (cmd.render_pass_began) c.vkCmdEndRenderPass(cmd.cmd);
     _ = c.vkEndCommandBuffer(cmd.cmd);
-    const submit_info = std.mem.zeroInit(c.VkSubmitInfo, .{ .sType = c.VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = @as([*]const c.VkCommandBuffer, @ptrCast(&cmd.cmd)) });
+    
+    var submit_info = std.mem.zeroInit(c.VkSubmitInfo, .{ .sType = c.VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = @as([*]const c.VkCommandBuffer, @ptrCast(&cmd.cmd)) });
+    const wait_stage: u32 = c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    var wait_semaphore = surface.image_available_semaphore;
+    var signal_semaphore = surface.render_finished_semaphore;
+    if (!surface.external_memory_enabled and surface.swapchain != null) {
+        submit_info.waitSemaphoreCount = 1;
+        submit_info.pWaitSemaphores = @as(?*const anyopaque, @ptrCast(&wait_semaphore));
+        submit_info.pWaitDstStageMask = @as(*const u32, &wait_stage);
+        submit_info.signalSemaphoreCount = 1;
+        submit_info.pSignalSemaphores = @as(?*const anyopaque, @ptrCast(&signal_semaphore));
+    }
+    
     _ = c.vkQueueSubmit(surface.graphics_queue, 1, @as([*]const c.VkSubmitInfo, @ptrCast(&submit_info)), surface.fence);
     _ = c.vkWaitForFences(surface.device, 1, @as([*]const c.VkFence, @ptrCast(&surface.fence)), c.VK_TRUE, std.math.maxInt(u64));
     _ = c.vkResetFences(surface.device, 1, @as([*]const c.VkFence, @ptrCast(&surface.fence)));
@@ -1283,7 +1647,7 @@ pub fn submitCommandBuffer(surface: *VulkanSurface, cmd: *VulkanCommandBuffer) v
     std.heap.page_allocator.destroy(cmd);
 }
 
-pub const VulkanPipeline = struct { pipeline: c.VkPipeline, layout: c.VkPipelineLayout };
+pub const VulkanPipeline = struct { pipeline: c.VkPipeline, layout: c.VkPipelineLayout, descriptor_set_layout: c.VkDescriptorSetLayout };
 fn createShaderModule(device: c.VkDevice, code: []const u8) ?c.VkShaderModule {
     const aligned_count = (code.len + 3) / 4;
     const aligned_code = std.heap.page_allocator.alloc(u32, aligned_count) catch return null;
@@ -1303,14 +1667,20 @@ pub fn createPipeline(surface: *VulkanSurface, desc: *const @import("lib.zig").P
     if (builtin.os.tag != .linux) return null;
     const vert_code = desc.vertex_shader.?[0..desc.vertex_shader_len];
     const frag_code = desc.pixel_shader.?[0..desc.pixel_shader_len];
-    const vert_module = createShaderModule(surface.device, vert_code) orelse return null;
-    const frag_module = createShaderModule(surface.device, frag_code) orelse return null;
+    const vert_module = createShaderModule(surface.device, vert_code) orelse {
+        std.debug.print("[Z-GRAPHICS] createPipeline: failed to create vert_module\n", .{});
+        return null;
+    };
+    const frag_module = createShaderModule(surface.device, frag_code) orelse {
+        std.debug.print("[Z-GRAPHICS] createPipeline: failed to create frag_module\n", .{});
+        return null;
+    };
     defer c.vkDestroyShaderModule(surface.device, vert_module, null);
     defer c.vkDestroyShaderModule(surface.device, frag_module, null);
 
     const shader_stages = [_]c.VkPipelineShaderStageCreateInfo{
-        .{ .stage = c.VK_SHADER_STAGE_VERTEX_BIT, .module = vert_module, .pName = "main" },
-        .{ .stage = c.VK_SHADER_STAGE_FRAGMENT_BIT, .module = frag_module, .pName = "main" },
+        .{ .sType = 18, .stage = c.VK_SHADER_STAGE_VERTEX_BIT, .module = vert_module, .pName = "VSMain" },
+        .{ .sType = 18, .stage = c.VK_SHADER_STAGE_FRAGMENT_BIT, .module = frag_module, .pName = "PSMain" },
     };
 
     const vb_desc = c.VkVertexInputBindingDescription{
@@ -1331,18 +1701,25 @@ pub fn createPipeline(surface: *VulkanSurface, desc: *const @import("lib.zig").P
     vertex_input_info.pVertexBindingDescriptions = &vb_desc;
     vertex_input_info.pVertexAttributeDescriptions = &va_desc;
 
-    const input_assembly = std.mem.zeroInit(c.VkPipelineInputAssemblyStateCreateInfo, .{ .topology = c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, .primitiveRestartEnable = 0 });
+    const input_assembly = std.mem.zeroInit(c.VkPipelineInputAssemblyStateCreateInfo, .{ .sType = 20, .topology = c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, .primitiveRestartEnable = 0 });
     const viewport = c.VkViewport{ .x = 0, .y = 0, .width = @floatFromInt(surface.width), .height = @floatFromInt(surface.height), .minDepth = 0, .maxDepth = 1 };
     const scissor = c.VkRect2D{ .offset = .{ .x = 0, .y = 0 }, .extent = .{ .width = surface.width, .height = surface.height } };
-    const viewport_state = std.mem.zeroInit(c.VkPipelineViewportStateCreateInfo, .{ .viewportCount = 1, .pViewports = @as([*]const c.VkViewport, @ptrCast(&viewport)), .scissorCount = 1, .pScissors = @as([*]const c.VkRect2D, @ptrCast(&scissor)) });
-    const rasterizer = std.mem.zeroInit(c.VkPipelineRasterizationStateCreateInfo, .{ .depthClampEnable = 0, .rasterizerDiscardEnable = 0, .polygonMode = c.VK_POLYGON_MODE_FILL, .lineWidth = 1, .cullMode = c.VK_CULL_MODE_NONE, .frontFace = c.VK_FRONT_FACE_CLOCKWISE, .depthBiasEnable = 0 });
-    const multisampling = std.mem.zeroInit(c.VkPipelineMultisampleStateCreateInfo, .{ .sampleShadingEnable = 0, .rasterizationSamples = c.VK_SAMPLE_COUNT_1_BIT });
+    const viewport_state = std.mem.zeroInit(c.VkPipelineViewportStateCreateInfo, .{ .sType = 22, .viewportCount = 1, .pViewports = @as([*]const c.VkViewport, @ptrCast(&viewport)), .scissorCount = 1, .pScissors = @as([*]const c.VkRect2D, @ptrCast(&scissor)) });
+    const rasterizer = std.mem.zeroInit(c.VkPipelineRasterizationStateCreateInfo, .{ .sType = 23, .depthClampEnable = 0, .rasterizerDiscardEnable = 0, .polygonMode = c.VK_POLYGON_MODE_FILL, .lineWidth = 1, .cullMode = c.VK_CULL_MODE_NONE, .frontFace = c.VK_FRONT_FACE_CLOCKWISE, .depthBiasEnable = 0 });
+    const multisampling = std.mem.zeroInit(c.VkPipelineMultisampleStateCreateInfo, .{ .sType = 24, .sampleShadingEnable = 0, .rasterizationSamples = c.VK_SAMPLE_COUNT_1_BIT });
     const color_blend_attachment = std.mem.zeroInit(c.VkPipelineColorBlendAttachmentState, .{ .colorWriteMask = 0xF, .blendEnable = 0 });
-    const color_blending = std.mem.zeroInit(c.VkPipelineColorBlendStateCreateInfo, .{ .logicOpEnable = 0, .attachmentCount = 1, .pAttachments = @as([*]const c.VkPipelineColorBlendAttachmentState, @ptrCast(&color_blend_attachment)) });
+    const color_blending = std.mem.zeroInit(c.VkPipelineColorBlendStateCreateInfo, .{ .sType = 26, .logicOpEnable = 0, .attachmentCount = 1, .pAttachments = @as([*]const c.VkPipelineColorBlendAttachmentState, @ptrCast(&color_blend_attachment)) });
 
-    const pipeline_layout_info = std.mem.zeroInit(c.VkPipelineLayoutCreateInfo, .{});
+    const pipeline_layout_info = std.mem.zeroInit(c.VkPipelineLayoutCreateInfo, .{
+        .sType = 30,
+        .setLayoutCount = 0,
+        .pSetLayouts = null,
+    });
     var pipeline_layout: c.VkPipelineLayout = null;
-    if (c.vkCreatePipelineLayout(surface.device, &pipeline_layout_info, null, &pipeline_layout) != c.VK_SUCCESS) return null;
+    if (c.vkCreatePipelineLayout(surface.device, &pipeline_layout_info, null, &pipeline_layout) != c.VK_SUCCESS) {
+        std.debug.print("[Z-GRAPHICS] createPipeline: vkCreatePipelineLayout failed\n", .{});
+        return null;
+    }
 
     const pipeline_info = c.VkGraphicsPipelineCreateInfo{
         .sType = 28, // VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO
@@ -1353,10 +1730,14 @@ pub fn createPipeline(surface: *VulkanSurface, desc: *const @import("lib.zig").P
         .layout = pipeline_layout, .renderPass = surface.render_pass, .subpass = 0,
     };
     var graphics_pipeline: c.VkPipeline = null;
-    if (c.vkCreateGraphicsPipelines(surface.device, null, 1, @as([*]const c.VkGraphicsPipelineCreateInfo, @ptrCast(&pipeline_info)), null, &graphics_pipeline) != c.VK_SUCCESS) return null;
+    if (c.vkCreateGraphicsPipelines(surface.device, null, 1, @as([*]const c.VkGraphicsPipelineCreateInfo, @ptrCast(&pipeline_info)), null, &graphics_pipeline) != c.VK_SUCCESS) {
+        std.debug.print("[Z-GRAPHICS] createPipeline: vkCreateGraphicsPipelines failed\n", .{});
+        return null;
+    }
 
-    var vulkan_pipeline = std.heap.page_allocator.create(VulkanPipeline) catch return null;
-    vulkan_pipeline.pipeline = graphics_pipeline; vulkan_pipeline.layout = pipeline_layout; return vulkan_pipeline;
+    const vulkan_pipeline = std.heap.page_allocator.create(VulkanPipeline) catch return null;
+    vulkan_pipeline.* = .{ .pipeline = graphics_pipeline, .layout = pipeline_layout, .descriptor_set_layout = null };
+    return vulkan_pipeline;
 }
 
 pub fn destroyPipeline(surface: *VulkanSurface, pipeline: *VulkanPipeline) void {
@@ -1489,11 +1870,128 @@ pub fn uploadBuffer(surface: *VulkanSurface, buffer: *VulkanBuffer, data: ?*cons
     return true;
 }
 
+pub fn uploadTexture(surface: *VulkanSurface, texture: *VulkanTexture, data: ?*const anyopaque, dataLen: usize) bool {
+    if (builtin.os.tag != .linux) return false;
+    if (data == null or dataLen == 0) return false;
+
+    const staging_size = dataLen;
+    const staging_info = std.mem.zeroInit(c.VkBufferCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .size = staging_size,
+        .usage = c.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
+    });
+
+    var staging: c.VkBuffer = null;
+    if (c.vkCreateBuffer(surface.device, &staging_info, null, &staging) != c.VK_SUCCESS) return false;
+
+    var mem_reqs: c.VkMemoryRequirements = undefined;
+    c.vkGetBufferMemoryRequirements(surface.device, staging, &mem_reqs);
+
+    var alloc_info = std.mem.zeroInit(c.VkMemoryAllocateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize = mem_reqs.size,
+        .memoryTypeIndex = 0,
+    });
+
+    const props = c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    var found: ?u32 = null;
+    var mem_props: c.VkPhysicalDeviceMemoryProperties = undefined;
+    c.vkGetPhysicalDeviceMemoryProperties(surface.physical_device, &mem_props);
+    for (0..mem_props.memoryTypeCount) |i| {
+        if ((mem_reqs.memoryTypeBits & (@as(u32, 1) << @intCast(i))) != 0) {
+            if ((mem_props.memoryTypes[i].propertyFlags & props) == props) {
+                found = @intCast(i);
+                break;
+            }
+        }
+    }
+    alloc_info.memoryTypeIndex = found orelse {
+        c.vkDestroyBuffer(surface.device, staging, null);
+        return false;
+    };
+
+    var staging_mem: c.VkDeviceMemory = null;
+    if (c.vkAllocateMemory(surface.device, &alloc_info, null, &staging_mem) != c.VK_SUCCESS) {
+        c.vkDestroyBuffer(surface.device, staging, null);
+        return false;
+    }
+    _ = c.vkBindBufferMemory(surface.device, staging, staging_mem, 0);
+
+    var data_ptr: ?*anyopaque = null;
+    if (c.vkMapMemory(surface.device, staging_mem, 0, staging_size, 0, &data_ptr) != c.VK_SUCCESS) {
+        c.vkFreeMemory(surface.device, staging_mem, null);
+        c.vkDestroyBuffer(surface.device, staging, null);
+        return false;
+    }
+    @memcpy(@as([*]u8, @ptrCast(@alignCast(data_ptr)))[0..dataLen], @as([*]const u8, @ptrCast(@alignCast(data)))[0..dataLen]);
+    c.vkUnmapMemory(surface.device, staging_mem);
+
+    const cmd_pool_info = std.mem.zeroInit(c.VkCommandPoolCreateInfo, .{ .sType = c.VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO, .queueFamilyIndex = surface.queue_family });
+    var copy_pool: c.VkCommandPool = null;
+    if (c.vkCreateCommandPool(surface.device, &cmd_pool_info, null, &copy_pool) != c.VK_SUCCESS) {
+        c.vkFreeMemory(surface.device, staging_mem, null);
+        c.vkDestroyBuffer(surface.device, staging, null);
+        return false;
+    }
+
+    const alloc_info2 = std.mem.zeroInit(c.VkCommandBufferAllocateInfo, .{ .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, .commandPool = copy_pool, .level = 0, .commandBufferCount = 1 });
+    var copy_cmd: c.VkCommandBuffer = null;
+    if (c.vkAllocateCommandBuffers(surface.device, &alloc_info2, @ptrCast(&copy_cmd)) != c.VK_SUCCESS) {
+        c.vkDestroyCommandPool(surface.device, copy_pool, null);
+        c.vkFreeMemory(surface.device, staging_mem, null);
+        c.vkDestroyBuffer(surface.device, staging, null);
+        return false;
+    }
+
+    const begin_info = std.mem.zeroInit(c.VkCommandBufferBeginInfo, .{ .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, .flags = 1 }); // VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+    _ = c.vkBeginCommandBuffer(copy_cmd, &begin_info);
+
+    var barrier = std.mem.zeroInit(c.VkImageMemoryBarrier, .{
+        .sType = 45,
+        .oldLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
+        .newLayout = c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        .srcAccessMask = 0,
+        .dstAccessMask = c.VK_ACCESS_TRANSFER_WRITE_BIT,
+        .image = texture.image,
+        .subresourceRange = .{ .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1 },
+    });
+
+    c.vkCmdPipelineBarrier(copy_cmd, c.VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, c.VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, null, 0, null, 1, @ptrCast(&barrier));
+
+    const region = std.mem.zeroInit(c.VkBufferImageCopy, .{
+        .imageSubresource = .{ .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT },
+        .imageExtent = .{ .width = texture.width, .height = texture.height, .depth = 1 },
+    });
+
+    c.vkCmdCopyBufferToImage(copy_cmd, staging, texture.image, c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, @ptrCast(&region));
+
+    barrier.oldLayout = c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.newLayout = c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    barrier.srcAccessMask = c.VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstAccessMask = c.VK_ACCESS_SHADER_READ_BIT;
+
+    c.vkCmdPipelineBarrier(copy_cmd, c.VK_PIPELINE_STAGE_TRANSFER_BIT, c.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, null, 0, null, 1, @ptrCast(&barrier));
+
+    _ = c.vkEndCommandBuffer(copy_cmd);
+
+    const submit_info = std.mem.zeroInit(c.VkSubmitInfo, .{ .sType = c.VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = @as([*]const c.VkCommandBuffer, @ptrCast(&copy_cmd)) });
+    _ = c.vkQueueSubmit(surface.graphics_queue, 1, @ptrCast(&submit_info), surface.fence);
+    _ = c.vkWaitForFences(surface.device, 1, @ptrCast(&surface.fence), c.VK_TRUE, std.math.maxInt(u64));
+    _ = c.vkResetFences(surface.device, 1, @ptrCast(&surface.fence));
+
+    c.vkDestroyCommandPool(surface.device, copy_pool, null);
+    c.vkFreeMemory(surface.device, staging_mem, null);
+    c.vkDestroyBuffer(surface.device, staging, null);
+
+    return true;
+}
+
 pub fn getBufferSize(buffer: *VulkanBuffer) usize {
     return buffer.size;
 }
 
-pub const VulkanTexture = struct { image: c.VkImage, memory: c.VkDeviceMemory, view: c.VkImageView };
+pub const VulkanTexture = struct { image: c.VkImage, memory: c.VkDeviceMemory, view: c.VkImageView, width: u32, height: u32, sampler: c.VkSampler, descriptor_set: c.VkDescriptorSet };
 
 pub fn createTexture(surface: *VulkanSurface, desc: *const zgraphics.ZawraGraphicsTextureDesc) ?*VulkanTexture {
     if (builtin.os.tag != .linux) return null;
@@ -1507,7 +2005,7 @@ pub fn createTexture(surface: *VulkanSurface, desc: *const zgraphics.ZawraGraphi
         .format = c.VK_FORMAT_R8G8B8A8_UNORM,
         .tiling = c.VK_IMAGE_TILING_OPTIMAL,
         .initialLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
-        .usage = c.VK_IMAGE_USAGE_TRANSFER_SRC_BIT | c.VK_IMAGE_USAGE_SAMPLED_BIT,
+        .usage = c.VK_IMAGE_USAGE_TRANSFER_SRC_BIT | c.VK_IMAGE_USAGE_TRANSFER_DST_BIT | c.VK_IMAGE_USAGE_SAMPLED_BIT,
         .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
         .samples = c.VK_SAMPLE_COUNT_1_BIT,
     });
@@ -1562,12 +2060,31 @@ pub fn createTexture(surface: *VulkanSurface, desc: *const zgraphics.ZawraGraphi
         return null;
     }
 
+    const sampler_info = std.mem.zeroInit(c.VkSamplerCreateInfo, .{
+        .sType = 31, // VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO
+        .magFilter = 1, // VK_FILTER_LINEAR
+        .minFilter = 1, // VK_FILTER_LINEAR
+        .addressModeU = 2, // VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE
+        .addressModeV = 2,
+        .addressModeW = 2,
+        .anisotropyEnable = 0,
+        .unnormalizedCoordinates = 0,
+    });
+    var sampler: c.VkSampler = null;
+    if (c.vkCreateSampler(surface.device, &sampler_info, null, &sampler) != c.VK_SUCCESS) {
+        c.vkDestroyImageView(surface.device, view, null);
+        c.vkFreeMemory(surface.device, memory, null);
+        c.vkDestroyImage(surface.device, image, null);
+        return null;
+    }
+
     const tex = std.heap.page_allocator.create(VulkanTexture) catch return null;
-    tex.* = .{ .image = image, .memory = memory, .view = view };
+    tex.* = .{ .image = image, .memory = memory, .view = view, .width = desc.width, .height = desc.height, .sampler = sampler, .descriptor_set = null };
     return tex;
 }
 
 pub fn destroyTexture(surface: *VulkanSurface, texture: *VulkanTexture) void {
+    if (texture.sampler != null) c.vkDestroySampler(surface.device, texture.sampler, null);
     if (texture.view != null) c.vkDestroyImageView(surface.device, texture.view, null);
     if (texture.memory != null) c.vkFreeMemory(surface.device, texture.memory, null);
     if (texture.image != null) c.vkDestroyImage(surface.device, texture.image, null);
