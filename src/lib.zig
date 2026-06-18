@@ -219,10 +219,13 @@ pub export fn ZawraGraphics_GetBufferSize(buffer: ZawraGraphicsBuffer) usize {
     return 0;
 }
 
-pub export fn ZawraGraphics_CmdBindVertexBuffer(cmd: ZawraGraphicsCommandBuffer, buffer: ZawraGraphicsBuffer, offset: usize) void {
-    if (builtin.os.tag == .linux) linux_vulkan.cmdBindVertexBuffer(@ptrCast(@alignCast(cmd)), @ptrCast(@alignCast(buffer)), offset);
-    if (builtin.os.tag == .macos) macos_metal.cmdBindVertexBuffer(@ptrCast(@alignCast(cmd)), @ptrCast(@alignCast(buffer)), offset);
-    if (builtin.os.tag == .windows) windows_d3d12.cmdBindVertexBuffer(@ptrCast(@alignCast(cmd)), @ptrCast(@alignCast(buffer)), offset);
+pub export fn ZG_BindTexture(cmd: ZawraGraphicsCommandBuffer, texture: ZawraGraphicsTexture, binding: u32) void {
+    if (builtin.os.tag == .linux) linux_vulkan.cmdBindTexture(@ptrCast(@alignCast(cmd)), @ptrCast(@alignCast(texture)), binding);
+    if (builtin.os.tag == .macos) macos_metal.cmdBindTexture(@ptrCast(@alignCast(cmd)), @ptrCast(@alignCast(texture)), binding);
+    if (builtin.os.tag == .windows) windows_d3d12.cmdBindTexture(@ptrCast(@alignCast(cmd)), @ptrCast(@alignCast(texture)), binding);
+}
+pub export fn ZawraGraphics_BindTexture(cmd: ZawraGraphicsCommandBuffer, texture: ZawraGraphicsTexture, binding: u32) void {
+    ZG_BindTexture(cmd, texture, binding);
 }
 
 pub export fn ZawraGraphics_CmdDraw(cmd: ZawraGraphicsCommandBuffer, vertex_count: u32, instance_count: u32, first_vertex: u32, first_instance: u32) void {

@@ -1714,11 +1714,35 @@ pub fn createPipeline(surface: *VulkanSurface, desc: *const @import("lib.zig").P
     const color_blend_attachment = std.mem.zeroInit(c.VkPipelineColorBlendAttachmentState, .{ .colorWriteMask = 0xF, .blendEnable = 0 });
     const color_blending = std.mem.zeroInit(c.VkPipelineColorBlendStateCreateInfo, .{ .sType = 26, .logicOpEnable = 0, .attachmentCount = 1, .pAttachments = @as([*]const c.VkPipelineColorBlendAttachmentState, @ptrCast(&color_blend_attachment)) });
 
-    const pipeline_layout_info = std.mem.zeroInit(c.VkPipelineLayoutCreateInfo, .{
-        .sType = 30,
-        .setLayoutCount = 0,
-        .pSetLayouts = null,
+    const descriptor_set_layout_binding = std.mem.zeroInit(c.VkDescriptorSetLayoutBinding, .{
+        .binding = 0,
+        .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+        .descriptorCount = 1,
+        .stageFlags = c.VK_SHADER_STAGE_FRAGMENT_BIT,
     });
+    const descriptor_set_layout_info = c.VkDescriptorSetLayoutCreateInfo{
+        .sType = 37,
+        .pNext = null,
+        .flags = 0,
+        .bindingCount = 1,
+        .pBindings = @as([*]const c.VkDescriptorSetLayoutBinding, @ptrCast(&descriptor_set_layout_binding)),
+    };
+    var descriptor_set_layout: c.VkDescriptorSetLayout = null;
+    if (c.vkCreateDescriptorSetLayout(surface.device, &descriptor_set_layout_info, null, &descriptor_set_layout) != c.VK_SUCCESS) {
+        std.debug.print("[Z-GRAPHICS] createPipeline: vkCreateDescriptorSetLayout failed\n", .{});
+        return null;
+    }
+
+    const layouts = [_]c.VkDescriptorSetLayout{descriptor_set_layout};
+    const pipeline_layout_info = c.VkPipelineLayoutCreateInfo{
+        .sType = 30,
+        .pNext = null,
+        .flags = 0,
+        .setLayoutCount = 1,
+        .pSetLayouts = &layouts,
+        .pushConstantRangeCount = 0,
+        .pPushConstantRanges = null,
+    };
     var pipeline_layout: c.VkPipelineLayout = null;
     if (c.vkCreatePipelineLayout(surface.device, &pipeline_layout_info, null, &pipeline_layout) != c.VK_SUCCESS) {
         std.debug.print("[Z-GRAPHICS] createPipeline: vkCreatePipelineLayout failed\n", .{});
@@ -1740,7 +1764,7 @@ pub fn createPipeline(surface: *VulkanSurface, desc: *const @import("lib.zig").P
     }
 
     const vulkan_pipeline = std.heap.page_allocator.create(VulkanPipeline) catch return null;
-    vulkan_pipeline.* = .{ .pipeline = graphics_pipeline, .layout = pipeline_layout, .descriptor_set_layout = null };
+    vulkan_pipeline.* = .{ .pipeline = graphics_pipeline, .layout = pipeline_layout, .descriptor_set_layout = descriptor_set_layout };
     return vulkan_pipeline;
 }
 
@@ -1748,6 +1772,7 @@ pub fn destroyPipeline(surface: *VulkanSurface, pipeline: *VulkanPipeline) void 
     if (builtin.os.tag != .linux) return;
     if (pipeline.pipeline != null) c.vkDestroyPipeline(surface.device, pipeline.pipeline, null);
     if (pipeline.layout != null) c.vkDestroyPipelineLayout(surface.device, pipeline.layout, null);
+    if (pipeline.descriptor_set_layout != null) c.vkDestroyDescriptorSetLayout(surface.device, pipeline.descriptor_set_layout, null);
     std.heap.page_allocator.destroy(pipeline);
 }
 
@@ -1756,9 +1781,10 @@ pub fn cmdBindPipeline(cmd: *VulkanCommandBuffer, pipeline: *VulkanPipeline) voi
     c.vkCmdBindPipeline(cmd.cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
 }
 
-pub fn cmdBindVertexBuffer(cmd: *VulkanCommandBuffer, buffer: *VulkanBuffer, offset: u64) void {
+pub fn cmdBindTexture(cmd: *VulkanCommandBuffer, texture: *VulkanTexture, binding: u32) void {
     if (builtin.os.tag != .linux) return;
-    c.vkCmdBindVertexBuffers(cmd.cmd, 0, 1, @as([*]const c.VkBuffer, @ptrCast(&buffer.buffer)), @as([*]const u64, @ptrCast(&offset)));
+    _ = cmd; _ = texture; _ = binding;
+    // FIXME: Implement descriptor set binding in Phase 2
 }
 
 pub fn cmdDraw(cmd: *VulkanCommandBuffer, vertex_count: u32, instance_count: u32, first_vertex: u32, first_instance: u32) void {

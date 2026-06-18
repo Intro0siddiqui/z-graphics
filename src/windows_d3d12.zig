@@ -295,9 +295,9 @@ pub fn swapBuffers(surface: *D3D12Surface) void {
 
     if (surface.swapchain) |sc| {
         const vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(sc))).*;
-        var present: ?*const fn (*anyopaque, u32, u32) callconv(.c) HRESULT = undefined;
-        if (true) present = @as(*const fn (*anyopaque, u32, u32) callconv(.c) HRESULT, @ptrCast(vtbl[8]));
-        if (present) |fn_ptr| _ = fn_ptr(sc, 1, 0);
+        var present_vtbl: ?*const fn (*anyopaque, u32, u32) callconv(.c) HRESULT = undefined;
+        if (true) present_vtbl = @as(*const fn (*anyopaque, u32, u32) callconv(.c) HRESULT, @ptrCast(vtbl[8]));
+        if (present_vtbl) |fn_ptr| _ = fn_ptr(sc, 1, 0);
     }
 }
 
@@ -570,9 +570,10 @@ pub fn cmdBindPipeline(cmd: *D3D12CommandBuffer, pipeline: *D3D12Pipeline) void 
     }
 }
 
-pub fn cmdBindVertexBuffer(cmd: *D3D12CommandBuffer, buffer: *D3D12Buffer, offset: usize) void {
+pub fn cmdBindTexture(cmd: *D3D12CommandBuffer, texture: *D3D12Texture, binding: u32) void {
     if (builtin.os.tag != .windows) return;
-    _ = cmd; _ = buffer; _ = offset;
+    _ = cmd; _ = texture; _ = binding;
+    // FIXME: Implement descriptor set binding in Phase 3
 }
 
 pub fn cmdDraw(cmd: *D3D12CommandBuffer, vertex_count: u32, instance_count: u32, first_vertex: u32, first_instance: u32) void {

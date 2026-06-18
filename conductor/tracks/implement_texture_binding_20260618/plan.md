@@ -1,7 +1,7 @@
 # Implementation Plan: implement_texture_binding_20260618
 
 ## Phase 1: API Extension
-- [ ] Task: Add `ZG_BindTexture` to `lib.zig`
+- [~] Task: Add `ZG_BindTexture` to `lib.zig`
 - [ ] Task: Conductor - User Manual Verification 'Phase 1'
 
 ## Phase 2: Vulkan Backend
