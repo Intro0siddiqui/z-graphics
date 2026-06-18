@@ -5,7 +5,7 @@
 - [ ] Task: Conductor - User Manual Verification 'Phase 1'
 
 ## Phase 2: macOS/Metal Swapchain
-- [ ] Task: Implement swapchain/drawable presentation in `macos_metal.zig`
+- [~] Task: Implement swapchain/drawable presentation in `macos_metal.zig`
 - [ ] Task: Conductor - User Manual Verification 'Phase 2'
 
 ## Phase 3: Windows/D3D12 Swapchain
