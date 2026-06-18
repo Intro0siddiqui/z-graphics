@@ -878,6 +878,7 @@ pub const VulkanSurface = struct {
     width: u32,
     height: u32,
     descriptor_pool: c.VkDescriptorPool = null,
+    descriptor_set_layout: c.VkDescriptorSetLayout = null,
 };
 
 // --- X11 FFI ---
@@ -1316,12 +1317,12 @@ pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*VulkanSurfa
         const pool_sizes = [_]c.VkDescriptorPoolSize{
             .{ .type = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 100 },
         };
-        const pool_info = c.VkDescriptorPoolCreateInfo{
+        const pool_info = std.mem.zeroInit(c.VkDescriptorPoolCreateInfo, .{
             .sType = 33, // VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO
             .maxSets = 100,
             .poolSizeCount = pool_sizes.len,
             .pPoolSizes = &pool_sizes,
-        };
+        });
         var descriptor_pool: c.VkDescriptorPool = null;
         if (c.vkCreateDescriptorPool(device, &pool_info, null, &descriptor_pool) != c.VK_SUCCESS) {
             std.debug.print("[Z-GRAPHICS] createSurface: Warning - failed to create descriptor pool\n", .{});
@@ -1577,7 +1578,7 @@ pub fn destroyBuffer(surface: *VulkanSurface, buffer: *VulkanBuffer) void {
     std.heap.page_allocator.destroy(buffer);
 }
 
-pub const VulkanCommandBuffer = struct { cmd: c.VkCommandBuffer, pool: c.VkCommandPool, surface: *VulkanSurface, render_pass_began: bool };
+pub const VulkanCommandBuffer = struct { cmd: c.VkCommandBuffer, pool: c.VkCommandPool, surface: *VulkanSurface, render_pass_began: bool, pipeline_layout: c.VkPipelineLayout = null };
 pub fn beginCommandBuffer(surface: *VulkanSurface) ?*VulkanCommandBuffer {
     if (builtin.os.tag != .linux) return null;
     const pool_info = std.mem.zeroInit(c.VkCommandPoolCreateInfo, .{ .sType = c.VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO, .queueFamilyIndex = surface.queue_family });
@@ -1733,17 +1734,19 @@ pub fn createPipeline(surface: *VulkanSurface, desc: *const @import("lib.zig").P
         return null;
     }
 
-    const layouts = [_]c.VkDescriptorSetLayout{descriptor_set_layout};
     const pipeline_layout_info = c.VkPipelineLayoutCreateInfo{
         .sType = 30,
         .pNext = null,
         .flags = 0,
         .setLayoutCount = 1,
-        .pSetLayouts = &layouts,
+        .pSetLayouts = @as(?*const anyopaque, @ptrCast(&descriptor_set_layout)),
         .pushConstantRangeCount = 0,
         .pPushConstantRanges = null,
     };
+    surface.descriptor_set_layout = descriptor_set_layout;
+
     var pipeline_layout: c.VkPipelineLayout = null;
+
     if (c.vkCreatePipelineLayout(surface.device, &pipeline_layout_info, null, &pipeline_layout) != c.VK_SUCCESS) {
         std.debug.print("[Z-GRAPHICS] createPipeline: vkCreatePipelineLayout failed\n", .{});
         return null;
@@ -1779,12 +1782,18 @@ pub fn destroyPipeline(surface: *VulkanSurface, pipeline: *VulkanPipeline) void 
 pub fn cmdBindPipeline(cmd: *VulkanCommandBuffer, pipeline: *VulkanPipeline) void {
     if (builtin.os.tag != .linux) return;
     c.vkCmdBindPipeline(cmd.cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
+    cmd.pipeline_layout = pipeline.layout;
 }
 
 pub fn cmdBindTexture(cmd: *VulkanCommandBuffer, texture: *VulkanTexture, binding: u32) void {
+    if (builtin.os.tag != .linux or cmd.pipeline_layout == null) return;
+    const sets = [_]c.VkDescriptorSet{texture.descriptor_set};
+    c.vkCmdBindDescriptorSets(cmd.cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, cmd.pipeline_layout.?, binding, 1, @as([*]const c.VkDescriptorSet, @ptrCast(&sets)), 0, null);
+}
+
+pub fn cmdBindVertexBuffer(cmd: *VulkanCommandBuffer, buffer: *VulkanBuffer, offset: u64) void {
     if (builtin.os.tag != .linux) return;
-    _ = cmd; _ = texture; _ = binding;
-    // FIXME: Implement descriptor set binding in Phase 2
+    c.vkCmdBindVertexBuffers(cmd.cmd, 0, 1, @as([*]const c.VkBuffer, @ptrCast(&buffer.buffer)), @as([*]const u64, @ptrCast(&offset)));
 }
 
 pub fn cmdDraw(cmd: *VulkanCommandBuffer, vertex_count: u32, instance_count: u32, first_vertex: u32, first_instance: u32) void {
@@ -2110,6 +2119,37 @@ pub fn createTexture(surface: *VulkanSurface, desc: *const zgraphics.ZawraGraphi
 
     const tex = std.heap.page_allocator.create(VulkanTexture) catch return null;
     tex.* = .{ .image = image, .memory = memory, .view = view, .width = desc.width, .height = desc.height, .sampler = sampler, .descriptor_set = null };
+
+    if (surface.descriptor_set_layout != null and surface.descriptor_pool != null) {
+    const desc_alloc_info = c.VkDescriptorSetAllocateInfo{
+        .sType = 34,
+        .pNext = null,
+        .descriptorPool = surface.descriptor_pool,
+        .descriptorSetCount = 1,
+        .pSetLayouts = @as([*]const c.VkDescriptorSetLayout, @ptrCast(&surface.descriptor_set_layout)),
+    };
+    _ = c.vkAllocateDescriptorSets(surface.device, &desc_alloc_info, &tex.descriptor_set);
+
+    const texture_image_info = std.mem.zeroInit(c.VkDescriptorImageInfo, .{
+        .imageLayout = c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        .imageView = view,
+        .sampler = sampler,
+    });
+    const write_desc = c.VkWriteDescriptorSet{
+        .sType = 35,
+        .pNext = null,
+        .dstSet = tex.descriptor_set,
+        .dstBinding = 0,
+        .dstArrayElement = 0,
+        .descriptorCount = 1,
+        .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+        .pImageInfo = @as([*]const c.VkDescriptorImageInfo, @ptrCast(&texture_image_info)),
+        .pBufferInfo = null,
+        .pTexelBufferView = null,
+    };
+
+    c.vkUpdateDescriptorSets(surface.device, 1, @as([*]const c.VkWriteDescriptorSet, @ptrCast(&write_desc)), 0, null);
+    }
     return tex;
 }
 

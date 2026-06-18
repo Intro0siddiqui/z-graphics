@@ -19,6 +19,16 @@ pub fn main() !void {
     const pixel_data = @embedFile("pixels.raw");
     std.debug.print("Loaded image data, size: {d}\n", .{pixel_data.len});
 
+    const shaders = @import("shaders");
+    const pipeline_desc = zgraphics.PipelineDesc{
+        .vertex_shader = shaders.vert.ptr,
+        .vertex_shader_len = shaders.vert.len,
+        .pixel_shader = shaders.frag.ptr,
+        .pixel_shader_len = shaders.frag.len,
+    };
+    std.debug.print("Creating pipeline...\n", .{});
+    const pipeline = zgraphics.ZawraGraphics_CreatePipeline(surface, &pipeline_desc).?;
+
     // 2. Create Texture
     const tex_desc = zgraphics.ZawraGraphicsTextureDesc{
         .format = .R8G8B8A8_Unorm,
@@ -34,16 +44,6 @@ pub fn main() !void {
     std.debug.print("Texture created. Uploading...\n", .{});
     const uploaded = zgraphics.ZawraGraphics_UploadTexture(surface, texture, pixel_data.ptr, pixel_data.len);
     std.debug.print("Texture uploaded: {}\n", .{uploaded});
-
-    const shaders = @import("shaders");
-    const pipeline_desc = zgraphics.PipelineDesc{
-        .vertex_shader = shaders.vert.ptr,
-        .vertex_shader_len = shaders.vert.len,
-        .pixel_shader = shaders.frag.ptr,
-        .pixel_shader_len = shaders.frag.len,
-    };
-    std.debug.print("Creating pipeline...\n", .{});
-    const pipeline = zgraphics.ZawraGraphics_CreatePipeline(surface, &pipeline_desc).?;
 
     // 3. Render loop
     std.debug.print("Starting render loop for 10 seconds...\n", .{});
@@ -62,6 +62,7 @@ pub fn main() !void {
         zgraphics.ZawraGraphics_CmdClearColor(cmd, 0.0, 0.0, 0.0, 1.0);
         
         zgraphics.ZawraGraphics_CmdBindPipeline(cmd, pipeline);
+        zgraphics.ZawraGraphics_BindTexture(cmd, texture, 0); // Bind texture at slot 0
         // Draw 3 vertices to generate the fullscreen triangle via SV_VertexID
         zgraphics.ZawraGraphics_CmdDraw(cmd, 3, 1, 0, 0);
         

@@ -1,13 +1,13 @@
 # Implementation Plan: implement_texture_binding_20260618
 
 ## Phase 1: API Extension
-- [~] Task: Add `ZG_BindTexture` to `lib.zig`
-- [ ] Task: Conductor - User Manual Verification 'Phase 1'
+- [x] Task: Add `ZG_BindTexture` to `lib.zig` [d1395b2]
+- [x] Task: Conductor - User Manual Verification 'Phase 1'
 
 ## Phase 2: Vulkan Backend
-- [ ] Task: Implement `vkUpdateDescriptorSets` in `linux_vulkan.zig`
-- [ ] Task: Implement `vkCmdBindDescriptorSets` in `cmdBindTexture`
-- [ ] Task: Conductor - User Manual Verification 'Phase 2'
+- [x] Task: Implement `vkUpdateDescriptorSets` in `linux_vulkan.zig` [d1395b2]
+- [x] Task: Implement `vkCmdBindDescriptorSets` in `cmdBindTexture` [d1395b2]
+- [x] Task: Conductor - User Manual Verification 'Phase 2'
 
 ## Phase 3: Metal & D3D12 Backends
 - [ ] Task: Implement binding in `macos_metal.zig`
