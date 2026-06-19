@@ -59,7 +59,7 @@ pub fn main() !void {
 
         const cmd = zgraphics.ZawraGraphics_BeginCommandBuffer(surface).?;
         
-        zgraphics.ZawraGraphics_CmdClearColor(cmd, 0.0, 0.0, 0.0, 1.0);
+        zgraphics.ZawraGraphics_CmdClearColor(cmd, 1.0, 0.0, 0.0, 1.0);
         
         zgraphics.ZawraGraphics_CmdBindPipeline(cmd, pipeline);
         zgraphics.ZawraGraphics_BindTexture(cmd, texture, 0); // Bind texture at slot 0

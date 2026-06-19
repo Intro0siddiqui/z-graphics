@@ -36,17 +36,18 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    // Shader compilation step (Vulkan/SPIR-V)
+    // Shader compilation step (Vulkan/SPIR-V from GLSL)
     const shaders_dir = b.path("shaders");
-    const basic_hlsl = shaders_dir.path(b, "basic.hlsl");
+    const basic_vert_glsl = shaders_dir.path(b, "basic.vert");
+    const basic_frag_glsl = shaders_dir.path(b, "basic.frag");
     
-    const compile_vert = b.addSystemCommand(&.{ "glslangValidator", "-V", "-D", "-e", "VSMain", "-S", "vert", "--target-env", "vulkan1.0", "-o" });
+    const compile_vert = b.addSystemCommand(&.{ "glslangValidator", "-V", "--target-env", "vulkan1.0", "-o" });
     const vert_spirv = compile_vert.addOutputFileArg("basic.vert.spv");
-    compile_vert.addFileArg(basic_hlsl);
+    compile_vert.addFileArg(basic_vert_glsl);
 
-    const compile_frag = b.addSystemCommand(&.{ "glslangValidator", "-V", "-D", "-e", "PSMain", "-S", "frag", "--target-env", "vulkan1.0", "-o" });
+    const compile_frag = b.addSystemCommand(&.{ "glslangValidator", "-V", "--target-env", "vulkan1.0", "-o" });
     const frag_spirv = compile_frag.addOutputFileArg("basic.frag.spv");
-    compile_frag.addFileArg(basic_hlsl);
+    compile_frag.addFileArg(basic_frag_glsl);
 
     const shader_gen = b.addWriteFiles();
     _ = shader_gen.addCopyFile(vert_spirv, "basic.vert.spv");

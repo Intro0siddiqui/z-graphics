@@ -8,6 +8,10 @@ struct PSInput {
     float2 texcoord : TEXCOORD0;
 };
 
+// Texture and Sampler
+Texture2D mainTexture : register(t0);
+SamplerState mainSampler : register(s1);
+
 PSInput VSMain(uint id : SV_VertexID) {
     PSInput output;
     output.texcoord = float2((id << 1) & 2, id & 2);
@@ -16,5 +20,5 @@ PSInput VSMain(uint id : SV_VertexID) {
 }
 
 float4 PSMain(PSInput input) : SV_TARGET {
-    return float4(0.2f, 0.8f, 0.4f, 1.0f);
+    return mainTexture.Sample(mainSampler, input.texcoord);
 }

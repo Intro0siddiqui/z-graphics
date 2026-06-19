@@ -283,8 +283,10 @@ pub fn cmdBindPipeline(cmd: *MetalCommandBuffer, pipeline: *MetalPipeline) void 
 
 pub fn cmdBindTexture(cmd: *MetalCommandBuffer, texture: *MetalTexture, binding: u32) void {
     if (builtin.os.tag != .macos) return;
-    _ = cmd; _ = texture; _ = binding;
-    // FIXME: Implement descriptor set binding in Phase 3
+    if (cmd.render_encoder) |enc| {
+        const setFragmentTexture = sel_registerName("setFragmentTexture:atIndex:");
+        _ = objc_msgSend(enc, setFragmentTexture, texture.texture, @as(usize, binding));
+    }
 }
 
 pub fn cmdDraw(cmd: *MetalCommandBuffer, vertex_count: u32, instance_count: u32, first_vertex: u32, first_instance: u32) void {
