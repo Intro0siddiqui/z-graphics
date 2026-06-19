@@ -289,6 +289,11 @@ pub fn cmdBindTexture(cmd: *MetalCommandBuffer, texture: *MetalTexture, binding:
     }
 }
 
+pub fn cmdBindVertexBuffer(cmd: *MetalCommandBuffer, buffer: *MetalBuffer, offset: usize) void {
+    if (builtin.os.tag != .macos) return;
+    _ = cmd; _ = buffer; _ = offset;
+}
+
 pub fn cmdDraw(cmd: *MetalCommandBuffer, vertex_count: u32, instance_count: u32, first_vertex: u32, first_instance: u32) void {
     if (builtin.os.tag != .macos) return;
     _ = cmd; _ = vertex_count; _ = instance_count; _ = first_vertex; _ = first_instance;

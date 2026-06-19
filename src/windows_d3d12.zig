@@ -576,6 +576,11 @@ pub fn cmdBindTexture(cmd: *D3D12CommandBuffer, texture: *D3D12Texture, binding:
     // FIXME: Implement descriptor set binding in Phase 3
 }
 
+pub fn cmdBindVertexBuffer(cmd: *D3D12CommandBuffer, buffer: *D3D12Buffer, offset: u64) void {
+    if (builtin.os.tag != .windows) return;
+    _ = cmd; _ = buffer; _ = offset;
+}
+
 pub fn cmdDraw(cmd: *D3D12CommandBuffer, vertex_count: u32, instance_count: u32, first_vertex: u32, first_instance: u32) void {
     if (builtin.os.tag != .windows) return;
     _ = cmd; _ = vertex_count; _ = instance_count; _ = first_vertex; _ = first_instance;
