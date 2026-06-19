@@ -9,6 +9,8 @@ pub const D3D12Surface = struct {
     allocation: ?*anyopaque,
     hwnd: ?*anyopaque,
     swapchain: ?*anyopaque,
+    fence: ?*anyopaque,
+    fence_value: u64,
     width: u32,
     height: u32,
 };
@@ -240,6 +242,14 @@ pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*D3D12Surfac
     surface_obj.allocation = null;
     surface_obj.swapchain = null;
 
+    // Create Fence
+    const IID_ID3D12Fence = GUID{
+        .Data1 = 0x0a7536d3, .Data2 = 0xc432, .Data3 = 0x4858, .Data4 = .{0xbc, 0x47, 0x56, 0x6e, 0x3d, 0x3f, 0x18, 0x77}
+    };
+    const CreateFence = @as(*const fn (*anyopaque, u64, u32, *const GUID, *?*anyopaque) callconv(.c) HRESULT, @ptrCast(vtbl[38]));
+    _ = CreateFence(device, 0, 0, &IID_ID3D12Fence, &surface_obj.fence);
+    surface_obj.fence_value = 0;
+
     if (surface_obj.hwnd != null) {
         var factory: ?*anyopaque = null;
         if (CreateDXGIFactory2(0, &IID_IDXGIFactory4, &factory) >= 0 and factory != null) {
@@ -285,9 +295,9 @@ pub fn swapBuffers(surface: *D3D12Surface) void {
 
     if (surface.swapchain) |sc| {
         const vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(sc))).*;
-        var present: ?*const fn (*anyopaque, u32, u32) callconv(.c) HRESULT = undefined;
-        if (true) present = @as(*const fn (*anyopaque, u32, u32) callconv(.c) HRESULT, @ptrCast(vtbl[8]));
-        if (present) |fn_ptr| _ = fn_ptr(sc, 1, 0);
+        var present_vtbl: ?*const fn (*anyopaque, u32, u32) callconv(.c) HRESULT = undefined;
+        if (true) present_vtbl = @as(*const fn (*anyopaque, u32, u32) callconv(.c) HRESULT, @ptrCast(vtbl[8]));
+        if (present_vtbl) |fn_ptr| _ = fn_ptr(sc, 1, 0);
     }
 }
 
@@ -414,6 +424,21 @@ pub fn cmdClearColor(cmd: *D3D12CommandBuffer, r: f32, g: f32, b: f32, a: f32) v
     }
 }
 
+pub fn createSwapchain(surface: *D3D12Surface) bool {
+    return surface.swapchain != null;
+}
+
+pub fn present(surface: *D3D12Surface) void {
+    if (builtin.os.tag != .windows) return;
+
+    if (surface.swapchain) |sc| {
+        const vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(sc))).*;
+        var presentFn: ?*const fn (*anyopaque, u32, u32) callconv(.c) HRESULT = undefined;
+        if (true) presentFn = @as(*const fn (*anyopaque, u32, u32) callconv(.c) HRESULT, @ptrCast(vtbl[8]));
+        if (presentFn) |fn_ptr| _ = fn_ptr(sc, 1, 0);
+    }
+}
+
 pub fn submitCommandBuffer(surface: *D3D12Surface, cmd: *D3D12CommandBuffer) void {
     if (builtin.os.tag != .windows) return;
     if (cmd.cmd_list) |cmd_list| {
@@ -426,11 +451,14 @@ pub fn submitCommandBuffer(surface: *D3D12Surface, cmd: *D3D12CommandBuffer) voi
         const ExecuteCommandLists = @as(*const fn (*anyopaque, u32, [*]const ?*anyopaque) callconv(.c) void, @ptrCast(q_vtbl[10]));
         const lists = [_]?*anyopaque{cmd.cmd_list};
         ExecuteCommandLists(queue, 1, &lists);
-    }
-    if (surface.swapchain) |sc| {
-        const sc_vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(sc))).*;
-        const Present = @as(*const fn (*anyopaque, u32, u32) callconv(.c) HRESULT, @ptrCast(sc_vtbl[8]));
-        _ = Present(sc, 1, 0);
+        
+        const Signal = @as(*const fn (*anyopaque, *anyopaque, u64) callconv(.c) HRESULT, @ptrCast(q_vtbl[14]));
+        surface.fence_value += 1;
+        _ = Signal(queue, surface.fence.?, surface.fence_value);
+        
+        const f_vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(surface.fence.?))).*;
+        const GetCompletedValue = @as(*const fn (*anyopaque) callconv(.c) u64, @ptrCast(f_vtbl[12]));
+        while (GetCompletedValue(surface.fence.?) < surface.fence_value) {}
     }
 }
 
@@ -542,7 +570,13 @@ pub fn cmdBindPipeline(cmd: *D3D12CommandBuffer, pipeline: *D3D12Pipeline) void 
     }
 }
 
-pub fn cmdBindVertexBuffer(cmd: *D3D12CommandBuffer, buffer: *D3D12Buffer, offset: usize) void {
+pub fn cmdBindTexture(cmd: *D3D12CommandBuffer, texture: *D3D12Texture, binding: u32) void {
+    if (builtin.os.tag != .windows) return;
+    _ = cmd; _ = texture; _ = binding;
+    // FIXME: Implement descriptor set binding in Phase 3
+}
+
+pub fn cmdBindVertexBuffer(cmd: *D3D12CommandBuffer, buffer: *D3D12Buffer, offset: u64) void {
     if (builtin.os.tag != .windows) return;
     _ = cmd; _ = buffer; _ = offset;
 }

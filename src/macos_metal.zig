@@ -117,10 +117,19 @@ pub fn swapBuffers(surface: *MetalSurface) void {
         const nextDrawable = sel_registerName("nextDrawable");
         const drawable = objc_msgSend(layer, nextDrawable);
         if (drawable) |d| {
-            const present = sel_registerName("present");
-            _ = objc_msgSend(d, present);
+            const present_sel = sel_registerName("present");
+            _ = objc_msgSend(d, present_sel);
         }
     }
+}
+
+pub fn createSwapchain(surface: *MetalSurface) bool {
+    _ = surface;
+    return true;
+}
+
+pub fn present(surface: *MetalSurface) void {
+    swapBuffers(surface);
 }
 
 pub fn exportSurfaceFD(surface: *MetalSurface) i32 {
@@ -269,6 +278,14 @@ pub fn cmdBindPipeline(cmd: *MetalCommandBuffer, pipeline: *MetalPipeline) void 
     if (cmd.render_encoder) |enc| {
         const setRenderPipelineState = sel_registerName("setRenderPipelineState:");
         _ = objc_msgSend(enc, setRenderPipelineState, pipeline.pipeline_state);
+    }
+}
+
+pub fn cmdBindTexture(cmd: *MetalCommandBuffer, texture: *MetalTexture, binding: u32) void {
+    if (builtin.os.tag != .macos) return;
+    if (cmd.render_encoder) |enc| {
+        const setFragmentTexture = sel_registerName("setFragmentTexture:atIndex:");
+        _ = objc_msgSend(enc, setFragmentTexture, texture.texture, @as(usize, binding));
     }
 }
 
