@@ -245,7 +245,7 @@ pub fn createPipeline(surface: *MetalSurface, desc: *const zgraphics.PipelineDes
     const newLibraryWithSource = sel_registerName("newLibraryWithSource:options:error:");
     var err: ?*anyopaque = null;
     const lib = objc_msgSend(surface.device, newLibraryWithSource, msl_str, @as(?*anyopaque, null), &err) orelse return null;
-    
+
     const newFunctionWithName = sel_registerName("newFunctionWithName:");
     const vs_name = objc_msgSend(NSString, sel_registerName("stringWithUTF8String:"), @as([*:0]const u8, "vs_main"));
     const ps_name = objc_msgSend(NSString, sel_registerName("stringWithUTF8String:"), @as([*:0]const u8, "fs_main"));
@@ -291,12 +291,18 @@ pub fn cmdBindTexture(cmd: *MetalCommandBuffer, texture: *MetalTexture, binding:
 
 pub fn cmdBindVertexBuffer(cmd: *MetalCommandBuffer, buffer: *MetalBuffer, offset: usize) void {
     if (builtin.os.tag != .macos) return;
-    _ = cmd; _ = buffer; _ = offset;
+    _ = cmd;
+    _ = buffer;
+    _ = offset;
 }
 
 pub fn cmdDraw(cmd: *MetalCommandBuffer, vertex_count: u32, instance_count: u32, first_vertex: u32, first_instance: u32) void {
     if (builtin.os.tag != .macos) return;
-    _ = cmd; _ = vertex_count; _ = instance_count; _ = first_vertex; _ = first_instance;
+    _ = cmd;
+    _ = vertex_count;
+    _ = instance_count;
+    _ = first_vertex;
+    _ = first_instance;
 }
 
 pub fn uploadBuffer(buffer: *MetalBuffer, data: ?*const anyopaque, dataLen: usize) bool {
@@ -320,6 +326,10 @@ pub const MetalTexture = struct { texture: ?*anyopaque };
 
 pub fn createTexture(surface: *MetalSurface, desc: *const zgraphics.ZawraGraphicsTextureDesc) ?*MetalTexture {
     if (builtin.os.tag != .macos) return null;
+    switch (desc.format) {
+        .YUV420_3Plane, .NV12_2Plane, .P010_10bit => return null,
+        else => {},
+    }
     const MTLTextureDescriptor = objc_getClass("MTLTextureDescriptor") orelse return null;
     const texture2DDescriptorWithPixelFormat = sel_registerName("texture2DDescriptorWithPixelFormat:width:height:mipmapped:");
     const newTextureWithDescriptor = sel_registerName("newTextureWithDescriptor:");
@@ -341,4 +351,146 @@ pub fn destroyTexture(surface: *MetalSurface, texture: ?*MetalTexture) void {
     if (builtin.os.tag != .macos or texture == null) return;
     _ = surface;
     std.heap.page_allocator.destroy(texture.?);
+}
+
+pub fn importTextureFD(surface: *MetalSurface, fd: i32, desc: *const zgraphics.ZawraGraphicsTextureDesc) ?*MetalTexture {
+    _ = surface;
+    _ = fd;
+    _ = desc;
+    return null;
+}
+
+pub fn beginLayer(cmd: *MetalCommandBuffer, layer_id: u32, x: f32, y: f32, width: f32, height: f32, opacity: f32) void {
+    if (builtin.os.tag != .macos) return;
+    _ = cmd;
+    _ = layer_id;
+    _ = x;
+    _ = y;
+    _ = width;
+    _ = height;
+    _ = opacity;
+}
+
+pub fn endLayer(cmd: *MetalCommandBuffer) void {
+    if (builtin.os.tag != .macos) return;
+    _ = cmd;
+}
+
+pub fn setLayerOrder(order: [*]const u32, count: u32) void {
+    if (builtin.os.tag != .macos) return;
+    _ = order;
+    _ = count;
+}
+
+pub const MetalShaderModule = struct {
+    library: ?*anyopaque,
+};
+
+pub fn createShaderModulePublic(surface: *MetalSurface, spirv: [*]const u8, spirv_len: usize) ?*MetalShaderModule {
+    if (builtin.os.tag != .macos) return null;
+    _ = surface;
+    _ = spirv;
+    _ = spirv_len;
+    return null;
+}
+
+pub fn destroyShaderModulePublic(surface: *MetalSurface, module: *MetalShaderModule) void {
+    if (builtin.os.tag != .macos) return;
+    _ = surface;
+    std.heap.page_allocator.destroy(module);
+}
+
+pub fn createPipelineFromShadersPublic(surface: *MetalSurface, vert: *MetalShaderModule, frag: *MetalShaderModule) ?*MetalPipeline {
+    if (builtin.os.tag != .macos) return null;
+    _ = surface;
+    _ = vert;
+    _ = frag;
+    return null;
+}
+
+pub fn createUniformBuffer(surface: *MetalSurface, size: usize) ?*MetalBuffer {
+    if (builtin.os.tag != .macos) return null;
+    return createBuffer(surface, size, @intFromEnum(zgraphics.BufferType.Uniform));
+}
+
+pub fn uploadUniformBuffer(surface: *MetalSurface, buffer: *MetalBuffer, data: ?[*]const u8, len: usize) bool {
+    if (builtin.os.tag != .macos) return false;
+    _ = surface;
+    return uploadBuffer(buffer, @ptrCast(@alignCast(data)), len);
+}
+
+pub fn cmdBindUniformBuffer(cmd: *MetalCommandBuffer, buffer: *MetalBuffer, binding: u32, offset: u64) void {
+    if (builtin.os.tag != .macos) return;
+    _ = cmd;
+    _ = buffer;
+    _ = binding;
+    _ = offset;
+}
+
+pub fn createMRTSurface(surface: *MetalSurface, width: u32, height: u32, attachment_count: u32) ?*anyopaque {
+    _ = surface;
+    _ = width;
+    _ = height;
+    _ = attachment_count;
+    return null;
+}
+
+pub fn destroyMRTSurface(mrt: *anyopaque) void {
+    _ = mrt;
+}
+
+pub fn beginMRTCommandBuffer(mrt: *anyopaque) ?*MetalCommandBuffer {
+    _ = mrt;
+    return null;
+}
+
+pub fn endMRTSurface(mrt: *anyopaque) void {
+    _ = mrt;
+}
+
+pub fn readMRTTexture(mrt: *anyopaque, index: u32, out_buf: ?[*]u8, len: usize) bool {
+    _ = mrt;
+    _ = index;
+    _ = out_buf;
+    _ = len;
+    return false;
+}
+
+pub fn createStencilSurface(surface: *MetalSurface, width: u32, height: u32) ?*anyopaque {
+    _ = surface;
+    _ = width;
+    _ = height;
+    return null;
+}
+
+pub fn destroyStencilSurface(stencil: *anyopaque) void {
+    _ = stencil;
+}
+
+pub fn beginStencilCommandBuffer(stencil: *anyopaque) ?*MetalCommandBuffer {
+    _ = stencil;
+    return null;
+}
+
+pub fn endStencilSurface(stencil: *anyopaque) void {
+    _ = stencil;
+}
+
+pub fn readStencilColorTexture(stencil: *anyopaque, out_buf: ?[*]u8, len: usize) bool {
+    _ = stencil;
+    _ = out_buf;
+    _ = len;
+    return false;
+}
+
+pub fn createStencilPipeline(surface: *MetalSurface, desc: *const zgraphics.PipelineDesc) ?*MetalPipeline {
+    _ = surface;
+    _ = desc;
+    return null;
+}
+
+pub fn cmdSetStencilMask(cmd: *MetalCommandBuffer, face_mask: u32, reference: u32) void {
+    _ = cmd;
+    _ = face_mask;
+    _ = reference;
 }

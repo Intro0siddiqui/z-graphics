@@ -12,10 +12,10 @@ pub const CompositorState = struct {
 };
 
 const quad_vertices = [_]f32{
-    -1.0, -1.0, 0.0, 0.0,
-     1.0, -1.0, 1.0, 0.0,
-    -1.0,  1.0, 0.0, 1.0,
-     1.0,  1.0, 1.0, 1.0,
+    -1.0, -1.0, 0.0, 1.0,
+    1.0,  -1.0, 1.0, 1.0,
+    -1.0, 1.0,  0.0, 0.0,
+    1.0,  1.0,  1.0, 0.0,
 };
 
 pub fn initializeState(surface: ?zg.ZawraGraphicsHandle, width: u32, height: u32) ?*CompositorState {
@@ -111,7 +111,7 @@ pub fn resize(state: *CompositorState, new_width: u32, new_height: u32) bool {
     return true;
 }
 
-// C-FFI Exports for WebKit C++ Integration
+// C-FFI Exports for Compositor Integration
 pub export fn ZawraGraphics_CompositorInitialize(surface: ?zg.ZawraGraphicsHandle, width: u32, height: u32) ?*CompositorState {
     return initializeState(surface, width, height);
 }

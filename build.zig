@@ -40,7 +40,9 @@ pub fn build(b: *std.Build) void {
     const shaders_dir = b.path("shaders");
     const basic_vert_glsl = shaders_dir.path(b, "basic.vert");
     const basic_frag_glsl = shaders_dir.path(b, "basic.frag");
-    
+    const instanced_vert_glsl = shaders_dir.path(b, "instanced.vert");
+    const compute_comp_glsl = shaders_dir.path(b, "compute.comp");
+
     const compile_vert = b.addSystemCommand(&.{ "glslangValidator", "-V", "--target-env", "vulkan1.0", "-o" });
     const vert_spirv = compile_vert.addOutputFileArg("basic.vert.spv");
     compile_vert.addFileArg(basic_vert_glsl);
@@ -49,12 +51,24 @@ pub fn build(b: *std.Build) void {
     const frag_spirv = compile_frag.addOutputFileArg("basic.frag.spv");
     compile_frag.addFileArg(basic_frag_glsl);
 
+    const compile_instanced_vert = b.addSystemCommand(&.{ "glslangValidator", "-V", "--target-env", "vulkan1.0", "-o" });
+    const instanced_vert_spirv = compile_instanced_vert.addOutputFileArg("instanced.vert.spv");
+    compile_instanced_vert.addFileArg(instanced_vert_glsl);
+
+    const compile_compute = b.addSystemCommand(&.{ "glslangValidator", "-V", "--target-env", "vulkan1.0", "-o" });
+    const compute_spirv = compile_compute.addOutputFileArg("compute.comp.spv");
+    compile_compute.addFileArg(compute_comp_glsl);
+
     const shader_gen = b.addWriteFiles();
     _ = shader_gen.addCopyFile(vert_spirv, "basic.vert.spv");
     _ = shader_gen.addCopyFile(frag_spirv, "basic.frag.spv");
+    _ = shader_gen.addCopyFile(instanced_vert_spirv, "instanced.vert.spv");
+    _ = shader_gen.addCopyFile(compute_spirv, "compute.comp.spv");
     const shader_zig = shader_gen.add("shaders.zig",
         \\pub const vert = @embedFile("basic.vert.spv");
         \\pub const frag = @embedFile("basic.frag.spv");
+        \\pub const instanced_vert = @embedFile("instanced.vert.spv");
+        \\pub const compute = @embedFile("compute.comp.spv");
     );
 
     lib_mod.addAnonymousImport("shaders", .{

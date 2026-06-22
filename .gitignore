@@ -6,3 +6,4 @@ zig-out/
 *.pdb
 .kilo/
 libz-graphics.a
+test_data/combined_240.yuv

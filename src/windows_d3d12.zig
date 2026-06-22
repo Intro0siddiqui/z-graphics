@@ -81,8 +81,14 @@ pub fn createWindow(width: u32, height: u32) ?*anyopaque {
         class_name,
         "Zawra Browser",
         WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-        100, 100, @intCast(width), @intCast(height),
-        null, null, h_inst, null,
+        100,
+        100,
+        @intCast(width),
+        @intCast(height),
+        null,
+        null,
+        h_inst,
+        null,
     ) orelse return null;
 
     return hwnd;
@@ -243,9 +249,7 @@ pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*D3D12Surfac
     surface_obj.swapchain = null;
 
     // Create Fence
-    const IID_ID3D12Fence = GUID{
-        .Data1 = 0x0a7536d3, .Data2 = 0xc432, .Data3 = 0x4858, .Data4 = .{0xbc, 0x47, 0x56, 0x6e, 0x3d, 0x3f, 0x18, 0x77}
-    };
+    const IID_ID3D12Fence = GUID{ .Data1 = 0x0a7536d3, .Data2 = 0xc432, .Data3 = 0x4858, .Data4 = .{ 0xbc, 0x47, 0x56, 0x6e, 0x3d, 0x3f, 0x18, 0x77 } };
     const CreateFence = @as(*const fn (*anyopaque, u64, u32, *const GUID, *?*anyopaque) callconv(.c) HRESULT, @ptrCast(vtbl[38]));
     _ = CreateFence(device, 0, 0, &IID_ID3D12Fence, &surface_obj.fence);
     surface_obj.fence_value = 0;
@@ -394,12 +398,8 @@ pub const D3D12CommandBuffer = struct { cmd_list: ?*anyopaque, allocator: ?*anyo
 
 pub fn beginCommandBuffer(surface: *D3D12Surface) ?*D3D12CommandBuffer {
     if (builtin.os.tag != .windows) return null;
-    const IID_ID3D12CommandAllocator = GUID{
-        .Data1 = 0x6102dee4, .Data2 = 0xaf59, .Data3 = 0x4b09, .Data4 = .{0xb9, 0x99, 0xb4, 0x4d, 0x73, 0xf0, 0x9b, 0x24}
-    };
-    const IID_ID3D12GraphicsCommandList = GUID{
-        .Data1 = 0x5b160d0f, .Data2 = 0xac1b, .Data3 = 0x4185, .Data4 = .{0x8b, 0xa8, 0xb3, 0xae, 0x42, 0xa5, 0xa4, 0x55}
-    };
+    const IID_ID3D12CommandAllocator = GUID{ .Data1 = 0x6102dee4, .Data2 = 0xaf59, .Data3 = 0x4b09, .Data4 = .{ 0xb9, 0x99, 0xb4, 0x4d, 0x73, 0xf0, 0x9b, 0x24 } };
+    const IID_ID3D12GraphicsCommandList = GUID{ .Data1 = 0x5b160d0f, .Data2 = 0xac1b, .Data3 = 0x4185, .Data4 = .{ 0x8b, 0xa8, 0xb3, 0xae, 0x42, 0xa5, 0xa4, 0x55 } };
     var allocator: ?*anyopaque = null;
     var cmd_list: ?*anyopaque = null;
     const vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(surface.device.?))).*;
@@ -451,11 +451,11 @@ pub fn submitCommandBuffer(surface: *D3D12Surface, cmd: *D3D12CommandBuffer) voi
         const ExecuteCommandLists = @as(*const fn (*anyopaque, u32, [*]const ?*anyopaque) callconv(.c) void, @ptrCast(q_vtbl[10]));
         const lists = [_]?*anyopaque{cmd.cmd_list};
         ExecuteCommandLists(queue, 1, &lists);
-        
+
         const Signal = @as(*const fn (*anyopaque, *anyopaque, u64) callconv(.c) HRESULT, @ptrCast(q_vtbl[14]));
         surface.fence_value += 1;
         _ = Signal(queue, surface.fence.?, surface.fence_value);
-        
+
         const f_vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(surface.fence.?))).*;
         const GetCompletedValue = @as(*const fn (*anyopaque) callconv(.c) u64, @ptrCast(f_vtbl[12]));
         while (GetCompletedValue(surface.fence.?) < surface.fence_value) {}
@@ -468,15 +468,15 @@ pub fn createPipeline(surface: *D3D12Surface, desc: *const zgraphics.PipelineDes
     if (builtin.os.tag != .windows) return null;
     _ = desc;
     const vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(surface.device.?))).*;
-    const IID_ID3D12RootSignature = GUID{
-        .Data1 = 0xc54a6b66, .Data2 = 0x72df, .Data3 = 0x4ee8, .Data4 = .{0x8b, 0xe5, 0xa9, 0x46, 0xa1, 0x42, 0x92, 0x14}
-    };
+    const IID_ID3D12RootSignature = GUID{ .Data1 = 0xc54a6b66, .Data2 = 0x72df, .Data3 = 0x4ee8, .Data4 = .{ 0x8b, 0xe5, 0xa9, 0x46, 0xa1, 0x42, 0x92, 0x14 } };
     var root_sig: ?*anyopaque = null;
     const CreateRootSignature = @as(*const fn (*anyopaque, u32, ?*const anyopaque, usize, *const GUID, *?*anyopaque) callconv(.c) HRESULT, @ptrCast(vtbl[30]));
-    
+
     const D3D12_ROOT_SIGNATURE_DESC = extern struct {
-        NumParameters: u32, pParameters: ?*anyopaque,
-        NumStaticSamplers: u32, pStaticSamplers: ?*anyopaque,
+        NumParameters: u32,
+        pParameters: ?*anyopaque,
+        NumStaticSamplers: u32,
+        pStaticSamplers: ?*anyopaque,
         Flags: u32,
     };
     const d3d12_lib = LoadLibraryA("d3d12.dll");
@@ -495,12 +495,12 @@ pub fn createPipeline(surface: *D3D12Surface, desc: *const zgraphics.PipelineDes
             }
         }
     }
-    
+
     var vs_bytecode: ?[*]const u8 = null;
     var vs_size: usize = 0;
     var ps_bytecode: ?[*]const u8 = null;
     var ps_size: usize = 0;
-    
+
     const d3dcomp_lib = LoadLibraryA("d3dcompiler_47.dll");
     if (d3dcomp_lib) |lib| {
         if (GetProcAddress(lib, "D3DCompile")) |proc| {
@@ -524,12 +524,10 @@ pub fn createPipeline(surface: *D3D12Surface, desc: *const zgraphics.PipelineDes
             }
         }
     }
-    
-    const IID_ID3D12PipelineState = GUID{
-        .Data1 = 0x765a30f3, .Data2 = 0xf624, .Data3 = 0x4c6f, .Data4 = .{0xa8, 0x28, 0xac, 0xe9, 0x48, 0x62, 0x24, 0x45}
-    };
+
+    const IID_ID3D12PipelineState = GUID{ .Data1 = 0x765a30f3, .Data2 = 0xf624, .Data3 = 0x4c6f, .Data4 = .{ 0xa8, 0x28, 0xac, 0xe9, 0x48, 0x62, 0x24, 0x45 } };
     var pipeline_state: ?*anyopaque = null;
-    
+
     const D3D12_GRAPHICS_PIPELINE_STATE_DESC = extern struct {
         pRootSignature: ?*anyopaque,
         VS: extern struct { pShaderBytecode: ?[*]const u8, BytecodeLength: usize },
@@ -540,10 +538,10 @@ pub fn createPipeline(surface: *D3D12Surface, desc: *const zgraphics.PipelineDes
     pso_desc.pRootSignature = root_sig;
     pso_desc.VS = .{ .pShaderBytecode = vs_bytecode, .BytecodeLength = vs_size };
     pso_desc.PS = .{ .pShaderBytecode = ps_bytecode, .BytecodeLength = ps_size };
-    
+
     const CreateGraphicsPipelineState = @as(*const fn (*anyopaque, *const D3D12_GRAPHICS_PIPELINE_STATE_DESC, *const GUID, *?*anyopaque) callconv(.c) HRESULT, @ptrCast(vtbl[13]));
     _ = CreateGraphicsPipelineState(surface.device.?, &pso_desc, &IID_ID3D12PipelineState, &pipeline_state);
-    
+
     const pipe = std.heap.page_allocator.create(D3D12Pipeline) catch return null;
     pipe.* = .{ .pipeline_state = pipeline_state, .root_signature = root_sig };
     return pipe;
@@ -572,18 +570,26 @@ pub fn cmdBindPipeline(cmd: *D3D12CommandBuffer, pipeline: *D3D12Pipeline) void 
 
 pub fn cmdBindTexture(cmd: *D3D12CommandBuffer, texture: *D3D12Texture, binding: u32) void {
     if (builtin.os.tag != .windows) return;
-    _ = cmd; _ = texture; _ = binding;
+    _ = cmd;
+    _ = texture;
+    _ = binding;
     // FIXME: Implement descriptor set binding in Phase 3
 }
 
 pub fn cmdBindVertexBuffer(cmd: *D3D12CommandBuffer, buffer: *D3D12Buffer, offset: u64) void {
     if (builtin.os.tag != .windows) return;
-    _ = cmd; _ = buffer; _ = offset;
+    _ = cmd;
+    _ = buffer;
+    _ = offset;
 }
 
 pub fn cmdDraw(cmd: *D3D12CommandBuffer, vertex_count: u32, instance_count: u32, first_vertex: u32, first_instance: u32) void {
     if (builtin.os.tag != .windows) return;
-    _ = cmd; _ = vertex_count; _ = instance_count; _ = first_vertex; _ = first_instance;
+    _ = cmd;
+    _ = vertex_count;
+    _ = instance_count;
+    _ = first_vertex;
+    _ = first_instance;
 }
 
 pub fn uploadBuffer(buffer: *D3D12Buffer, data: ?*const anyopaque, dataLen: usize) bool {
@@ -601,6 +607,10 @@ pub const D3D12Texture = struct { resource: ?*anyopaque };
 
 pub fn createTexture(surface: *D3D12Surface, desc: *const zgraphics.ZawraGraphicsTextureDesc) ?*D3D12Texture {
     if (builtin.os.tag != .windows) return null;
+    switch (desc.format) {
+        .YUV420_3Plane, .NV12_2Plane, .P010_10bit => return null,
+        else => {},
+    }
     const heap_props = D3D12_HEAP_PROPERTIES{
         .Type = D3D12_HEAP_TYPE_DEFAULT,
         .CPUPageProperty = 0,
@@ -637,4 +647,146 @@ pub fn destroyTexture(surface: *D3D12Surface, texture: ?*D3D12Texture) void {
     if (builtin.os.tag != .windows or texture == null) return;
     _ = surface;
     std.heap.page_allocator.destroy(texture.?);
+}
+
+pub fn importTextureFD(surface: *D3D12Surface, fd: i32, desc: *const zgraphics.ZawraGraphicsTextureDesc) ?*D3D12Texture {
+    _ = surface;
+    _ = fd;
+    _ = desc;
+    return null;
+}
+
+pub fn beginLayer(cmd: *D3D12CommandBuffer, layer_id: u32, x: f32, y: f32, width: f32, height: f32, opacity: f32) void {
+    if (builtin.os.tag != .windows) return;
+    _ = cmd;
+    _ = layer_id;
+    _ = x;
+    _ = y;
+    _ = width;
+    _ = height;
+    _ = opacity;
+}
+
+pub fn endLayer(cmd: *D3D12CommandBuffer) void {
+    if (builtin.os.tag != .windows) return;
+    _ = cmd;
+}
+
+pub fn setLayerOrder(order: [*]const u32, count: u32) void {
+    if (builtin.os.tag != .windows) return;
+    _ = order;
+    _ = count;
+}
+
+pub const D3D12ShaderModule = struct {
+    bytecode: ?*anyopaque,
+};
+
+pub fn createShaderModulePublic(surface: *D3D12Surface, spirv: [*]const u8, spirv_len: usize) ?*D3D12ShaderModule {
+    if (builtin.os.tag != .windows) return null;
+    _ = surface;
+    _ = spirv;
+    _ = spirv_len;
+    return null;
+}
+
+pub fn destroyShaderModulePublic(surface: *D3D12Surface, module: *D3D12ShaderModule) void {
+    if (builtin.os.tag != .windows) return;
+    _ = surface;
+    std.heap.page_allocator.destroy(module);
+}
+
+pub fn createPipelineFromShadersPublic(surface: *D3D12Surface, vert: *D3D12ShaderModule, frag: *D3D12ShaderModule) ?*D3D12Pipeline {
+    if (builtin.os.tag != .windows) return null;
+    _ = surface;
+    _ = vert;
+    _ = frag;
+    return null;
+}
+
+pub fn createUniformBuffer(surface: *D3D12Surface, size: usize) ?*D3D12Buffer {
+    if (builtin.os.tag != .windows) return null;
+    return createBuffer(surface, size, @intFromEnum(zgraphics.BufferType.Uniform));
+}
+
+pub fn uploadUniformBuffer(surface: *D3D12Surface, buffer: *D3D12Buffer, data: ?[*]const u8, len: usize) bool {
+    if (builtin.os.tag != .windows) return false;
+    _ = surface;
+    return uploadBuffer(buffer, @ptrCast(@alignCast(data)), len);
+}
+
+pub fn cmdBindUniformBuffer(cmd: *D3D12CommandBuffer, buffer: *D3D12Buffer, binding: u32, offset: u64) void {
+    if (builtin.os.tag != .windows) return;
+    _ = cmd;
+    _ = buffer;
+    _ = binding;
+    _ = offset;
+}
+
+pub fn createMRTSurface(surface: *D3D12Surface, width: u32, height: u32, attachment_count: u32) ?*anyopaque {
+    _ = surface;
+    _ = width;
+    _ = height;
+    _ = attachment_count;
+    return null;
+}
+
+pub fn destroyMRTSurface(mrt: *anyopaque) void {
+    _ = mrt;
+}
+
+pub fn beginMRTCommandBuffer(mrt: *anyopaque) ?*D3D12CommandBuffer {
+    _ = mrt;
+    return null;
+}
+
+pub fn endMRTSurface(mrt: *anyopaque) void {
+    _ = mrt;
+}
+
+pub fn readMRTTexture(mrt: *anyopaque, index: u32, out_buf: ?[*]u8, len: usize) bool {
+    _ = mrt;
+    _ = index;
+    _ = out_buf;
+    _ = len;
+    return false;
+}
+
+pub fn createStencilSurface(surface: *D3D12Surface, width: u32, height: u32) ?*anyopaque {
+    _ = surface;
+    _ = width;
+    _ = height;
+    return null;
+}
+
+pub fn destroyStencilSurface(stencil: *anyopaque) void {
+    _ = stencil;
+}
+
+pub fn beginStencilCommandBuffer(stencil: *anyopaque) ?*D3D12CommandBuffer {
+    _ = stencil;
+    return null;
+}
+
+pub fn endStencilSurface(stencil: *anyopaque) void {
+    _ = stencil;
+}
+
+pub fn readStencilColorTexture(stencil: *anyopaque, out_buf: ?[*]u8, len: usize) bool {
+    _ = stencil;
+    _ = out_buf;
+    _ = len;
+    return false;
+}
+
+pub fn createStencilPipeline(surface: *D3D12Surface, desc: *const zgraphics.PipelineDesc) ?*D3D12Pipeline {
+    _ = surface;
+    _ = desc;
+    return null;
+}
+
+pub fn cmdSetStencilMask(cmd: *D3D12CommandBuffer, face_mask: u32, reference: u32) void {
+    _ = cmd;
+    _ = face_mask;
+    _ = reference;
 }
