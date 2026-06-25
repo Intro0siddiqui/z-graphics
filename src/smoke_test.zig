@@ -2,22 +2,26 @@ const std = @import("std");
 const zgraphics = @import("lib.zig");
 
 pub fn main(init: std.process.Init.Minimal) !void {
+    const allocator = std.heap.page_allocator;
+    const args = try init.args.toSlice(allocator);
+
     var run_image = false;
     var run_video = false;
     var run_p2 = false;
     var run_p3 = false;
-    var arg_it = init.args.iterate();
-    _ = arg_it.next();
-    while (arg_it.next()) |arg| {
-        if (std.mem.eql(u8, arg, "--image")) run_image = true;
-        if (std.mem.eql(u8, arg, "--video")) run_video = true;
-        if (std.mem.eql(u8, arg, "--p2")) run_p2 = true;
-        if (std.mem.eql(u8, arg, "--p3")) run_p3 = true;
-        if (std.mem.eql(u8, arg, "--all")) {
-            run_image = true;
-            run_video = true;
-            run_p2 = true;
-            run_p3 = true;
+
+    if (args.len > 1) {
+        for (args[1..]) |arg| {
+            if (std.mem.eql(u8, arg, "--image")) run_image = true;
+            if (std.mem.eql(u8, arg, "--video")) run_video = true;
+            if (std.mem.eql(u8, arg, "--p2")) run_p2 = true;
+            if (std.mem.eql(u8, arg, "--p3")) run_p3 = true;
+            if (std.mem.eql(u8, arg, "--all")) {
+                run_image = true;
+                run_video = true;
+                run_p2 = true;
+                run_p3 = true;
+            }
         }
     }
     if (!run_image and !run_video and !run_p2 and !run_p3) {
