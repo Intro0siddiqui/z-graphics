@@ -62,6 +62,13 @@ pub const PipelineDesc = extern struct {
     vertex_shader_len: usize,
     pixel_shader: ?[*]const u8,
     pixel_shader_len: usize,
+    blend_enable: u32 = 0,
+    src_color_blend_factor: u32 = 0,
+    dst_color_blend_factor: u32 = 0,
+    color_blend_op: u32 = 0,
+    src_alpha_blend_factor: u32 = 0,
+    dst_alpha_blend_factor: u32 = 0,
+    alpha_blend_op: u32 = 0,
 };
 
 pub export fn ZG_Initialize() bool {
@@ -291,6 +298,24 @@ pub export fn ZawraGraphics_CmdDraw(cmd: ZawraGraphicsCommandBuffer, vertex_coun
     if (builtin.os.tag == .linux) linux_vulkan.cmdDraw(@ptrCast(@alignCast(cmd)), vertex_count, instance_count, first_vertex, first_instance);
     if (builtin.os.tag == .macos) macos_metal.cmdDraw(@ptrCast(@alignCast(cmd)), vertex_count, instance_count, first_vertex, first_instance);
     if (builtin.os.tag == .windows) windows_d3d12.cmdDraw(@ptrCast(@alignCast(cmd)), vertex_count, instance_count, first_vertex, first_instance);
+}
+
+pub export fn ZG_CmdSetViewport(cmd: ZawraGraphicsCommandBuffer, x: f32, y: f32, width: f32, height: f32, min_depth: f32, max_depth: f32) void {
+    if (builtin.os.tag == .linux) linux_vulkan.cmdSetViewport(@ptrCast(@alignCast(cmd)), x, y, width, height, min_depth, max_depth);
+    if (builtin.os.tag == .macos) macos_metal.cmdSetViewport(@ptrCast(@alignCast(cmd)), x, y, width, height, min_depth, max_depth);
+    if (builtin.os.tag == .windows) windows_d3d12.cmdSetViewport(@ptrCast(@alignCast(cmd)), x, y, width, height, min_depth, max_depth);
+}
+pub export fn ZawraGraphics_CmdSetViewport(cmd: ZawraGraphicsCommandBuffer, x: f32, y: f32, width: f32, height: f32, min_depth: f32, max_depth: f32) void {
+    ZG_CmdSetViewport(cmd, x, y, width, height, min_depth, max_depth);
+}
+
+pub export fn ZG_CmdSetScissor(cmd: ZawraGraphicsCommandBuffer, x: i32, y: i32, width: u32, height: u32) void {
+    if (builtin.os.tag == .linux) linux_vulkan.cmdSetScissor(@ptrCast(@alignCast(cmd)), x, y, width, height);
+    if (builtin.os.tag == .macos) macos_metal.cmdSetScissor(@ptrCast(@alignCast(cmd)), x, y, width, height);
+    if (builtin.os.tag == .windows) windows_d3d12.cmdSetScissor(@ptrCast(@alignCast(cmd)), x, y, width, height);
+}
+pub export fn ZawraGraphics_CmdSetScissor(cmd: ZawraGraphicsCommandBuffer, x: i32, y: i32, width: u32, height: u32) void {
+    ZG_CmdSetScissor(cmd, x, y, width, height);
 }
 
 pub export fn ZawraGraphics_BeginLayer(cmd: ZawraGraphicsCommandBuffer, layer_id: u32, x: f32, y: f32, width: f32, height: f32, opacity: f32) void {

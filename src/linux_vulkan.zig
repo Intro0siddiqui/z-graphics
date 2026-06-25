@@ -1094,7 +1094,8 @@ const c = struct {
     };
 
     pub const VK_SHADER_STAGE_COMPUTE_BIT = 0x20;
-    pub const VK_DESCRIPTOR_TYPE_STORAGE_BUFFER = 6;
+    pub const VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER = 6;
+    pub const VK_DESCRIPTOR_TYPE_STORAGE_BUFFER = 7;
     pub const VK_DESCRIPTOR_TYPE_STORAGE_IMAGE = 3;
     pub const VK_BUFFER_USAGE_STORAGE_BUFFER_BIT = 1 << 5;
     pub const VK_PIPELINE_BIND_POINT_COMPUTE = 1;
@@ -1918,6 +1919,7 @@ pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*VulkanSurfa
         const pool_sizes = [_]c.VkDescriptorPoolSize{
             .{ .type = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 100 },
             .{ .type = c.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 100 },
+            .{ .type = c.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 100 },
         };
         const pool_info = std.mem.zeroInit(c.VkDescriptorPoolCreateInfo, .{
             .sType = 33, // VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO
@@ -2498,7 +2500,17 @@ pub const LayerPushConstants = extern struct {
     _pad: [3]f32 = .{ 0, 0, 0 },
 };
 
-pub const VulkanCommandBuffer = struct { cmd: c.VkCommandBuffer, pool: c.VkCommandPool, surface: *VulkanSurface, render_pass_began: bool, pipeline_layout: c.VkPipelineLayout = null, current_layer: LayerState = .{} };
+pub const VulkanCommandBuffer = struct {
+    cmd: c.VkCommandBuffer,
+    pool: c.VkCommandPool,
+    surface: *VulkanSurface,
+    render_pass_began: bool,
+    pipeline_layout: c.VkPipelineLayout = null,
+    current_layer: LayerState = .{},
+    current_descriptor_set: c.VkDescriptorSet = null,
+    last_uniform_buffer: ?*VulkanBuffer = null,
+    last_uniform_offset: u64 = 0,
+};
 pub fn beginCommandBuffer(surface: *VulkanSurface) ?*VulkanCommandBuffer {
     if (builtin.os.tag != .linux) return null;
     if (surface.render_pool == null or surface.render_cmd == null) return null;
@@ -2522,6 +2534,9 @@ pub fn beginCommandBuffer(surface: *VulkanSurface) ?*VulkanCommandBuffer {
     surface.current_cmd.pool = surface.render_pool;
     surface.current_cmd.render_pass_began = false;
     surface.current_cmd.pipeline_layout = null;
+    surface.current_cmd.current_descriptor_set = null;
+    surface.current_cmd.last_uniform_buffer = null;
+    surface.current_cmd.last_uniform_offset = 0;
     std.debug.print("[ZG-DIAG] beginCommandBuffer OK: image_index={d} cmd={any}\n", .{ surface.image_index, surface.render_cmd });
     return &surface.current_cmd;
 }
@@ -2570,6 +2585,18 @@ pub fn cmdClearColor(cmd: *VulkanCommandBuffer, r: f32, g: f32, b: f32, a: f32) 
     const scissor = c.VkRect2D{ .offset = .{ .x = 0, .y = 0 }, .extent = .{ .width = surface.width, .height = surface.height } };
     c.vkCmdSetScissor(cmd.cmd, 0, 1, @as([*]const c.VkRect2D, @ptrCast(&scissor)));
     std.debug.print("[ZG-DIAG] cmdClearColor OK: w={d} h={d} fb={any} msaa={d} clear=({d},{d},{d},{d})\n", .{ surface.width, surface.height, fb, surface.msaa_samples, r, g, b, a });
+}
+
+pub fn cmdSetViewport(cmd: *VulkanCommandBuffer, x: f32, y: f32, width: f32, height: f32, min_depth: f32, max_depth: f32) void {
+    if (builtin.os.tag != .linux) return;
+    const viewport = c.VkViewport{ .x = x, .y = y, .width = width, .height = height, .minDepth = min_depth, .maxDepth = max_depth };
+    c.vkCmdSetViewport(cmd.cmd, 0, 1, @as([*]const c.VkViewport, @ptrCast(&viewport)));
+}
+
+pub fn cmdSetScissor(cmd: *VulkanCommandBuffer, x: i32, y: i32, width: u32, height: u32) void {
+    if (builtin.os.tag != .linux) return;
+    const scissor = c.VkRect2D{ .offset = .{ .x = x, .y = y }, .extent = .{ .width = width, .height = height } };
+    c.vkCmdSetScissor(cmd.cmd, 0, 1, @as([*]const c.VkRect2D, @ptrCast(&scissor)));
 }
 
 pub fn submitCommandBuffer(surface: *VulkanSurface, cmd: *VulkanCommandBuffer) void {
@@ -2670,7 +2697,16 @@ pub fn createPipeline(surface: *VulkanSurface, desc: *const @import("lib.zig").P
     const msaa_sample_shading_enable: u32 = if (surface.msaa_samples > 1) @as(u32, 1) else 0;
     const msaa_min_sample_shading: f32 = if (surface.msaa_samples > 1) 0.25 else 0;
     const multisampling = std.mem.zeroInit(c.VkPipelineMultisampleStateCreateInfo, .{ .sType = 24, .sampleShadingEnable = msaa_sample_shading_enable, .minSampleShading = msaa_min_sample_shading, .rasterizationSamples = msaa_rasterization_samples });
-    const color_blend_attachment = std.mem.zeroInit(c.VkPipelineColorBlendAttachmentState, .{ .colorWriteMask = 0xF, .blendEnable = 0 });
+    const color_blend_attachment = std.mem.zeroInit(c.VkPipelineColorBlendAttachmentState, .{
+        .colorWriteMask = 0xF,
+        .blendEnable = desc.blend_enable,
+        .srcColorBlendFactor = desc.src_color_blend_factor,
+        .dstColorBlendFactor = desc.dst_color_blend_factor,
+        .colorBlendOp = desc.color_blend_op,
+        .srcAlphaBlendFactor = desc.src_alpha_blend_factor,
+        .dstAlphaBlendFactor = desc.dst_alpha_blend_factor,
+        .alphaBlendOp = desc.alpha_blend_op,
+    });
     const color_blending = std.mem.zeroInit(c.VkPipelineColorBlendStateCreateInfo, .{ .sType = 26, .logicOpEnable = 0, .attachmentCount = 1, .pAttachments = @as([*]const c.VkPipelineColorBlendAttachmentState, @ptrCast(&color_blend_attachment)) });
 
     const descriptor_set_layout_bindings = [_]c.VkDescriptorSetLayoutBinding{
@@ -2678,7 +2714,13 @@ pub fn createPipeline(surface: *VulkanSurface, desc: *const @import("lib.zig").P
             .binding = 0,
             .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             .descriptorCount = 1,
-            .stageFlags = c.VK_SHADER_STAGE_FRAGMENT_BIT,
+            .stageFlags = c.VK_SHADER_STAGE_VERTEX_BIT | c.VK_SHADER_STAGE_FRAGMENT_BIT,
+        },
+        .{
+            .binding = 1,
+            .descriptorType = c.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .descriptorCount = 1,
+            .stageFlags = c.VK_SHADER_STAGE_VERTEX_BIT | c.VK_SHADER_STAGE_FRAGMENT_BIT,
         },
     };
     const descriptor_set_layout_info = c.VkDescriptorSetLayoutCreateInfo{
@@ -2969,6 +3011,7 @@ pub fn cmdBindTexture(cmd: *VulkanCommandBuffer, texture: *VulkanTexture, bindin
         std.debug.print("[ZG-DIAG] cmdBindTexture SKIPPED: pipeline_layout is null!\n", .{});
         return;
     }
+    cmd.current_descriptor_set = texture.descriptor_set;
     const sets = [_]c.VkDescriptorSet{texture.descriptor_set};
     std.debug.print("[ZG-DIAG] cmdBindTexture OK: binding={d} set={any} layout={any}\n", .{ binding, texture.descriptor_set, cmd.pipeline_layout });
     c.vkCmdBindDescriptorSets(cmd.cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, cmd.pipeline_layout.?, binding, 1, @as([*]const c.VkDescriptorSet, @ptrCast(&sets)), 0, null);
@@ -3453,10 +3496,47 @@ pub fn uploadUniformBuffer(surface: *VulkanSurface, buffer: *VulkanBuffer, data:
 
 pub fn cmdBindUniformBuffer(cmd: *VulkanCommandBuffer, buffer: *VulkanBuffer, binding: u32, offset: u64) void {
     if (builtin.os.tag != .linux) return;
-    _ = cmd;
-    _ = buffer;
-    _ = binding;
-    _ = offset;
+    if (cmd.pipeline_layout == null) return;
+    const desc_set = cmd.current_descriptor_set orelse return;
+
+    var props: c.VkPhysicalDeviceProperties = undefined;
+    c.vkGetPhysicalDeviceProperties(cmd.surface.physical_device, &props);
+    const alignment = props.limits.minUniformBufferOffsetAlignment;
+    const aligned_offset = (offset / alignment) * alignment;
+    if (aligned_offset != offset) {
+        std.debug.print("[Z-GRAPHICS] cmdBindUniformBuffer: WARNING offset={d} is not aligned to minUniformBufferOffsetAlignment={d}. Using aligned offset {d}.\n", .{ offset, alignment, aligned_offset });
+    }
+
+    if (cmd.last_uniform_buffer == buffer and cmd.last_uniform_offset == aligned_offset) {
+        const sets = [_]c.VkDescriptorSet{desc_set};
+        c.vkCmdBindDescriptorSets(cmd.cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, cmd.pipeline_layout.?, 0, 1, @as([*]const c.VkDescriptorSet, @ptrCast(&sets)), 0, null);
+        return;
+    }
+
+    const buffer_info = c.VkDescriptorBufferInfo{
+        .buffer = buffer.buffer,
+        .offset = aligned_offset,
+        .range = buffer.size - aligned_offset,
+    };
+    const write_info = c.VkWriteDescriptorSet{
+        .sType = c.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        .pNext = null,
+        .dstSet = desc_set,
+        .dstBinding = binding,
+        .dstArrayElement = 0,
+        .descriptorCount = 1,
+        .descriptorType = c.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        .pImageInfo = null,
+        .pBufferInfo = @as([*]const c.VkDescriptorBufferInfo, @ptrCast(&buffer_info)),
+        .pTexelBufferView = null,
+    };
+    c.vkUpdateDescriptorSets(cmd.surface.device, 1, @as([*]const c.VkWriteDescriptorSet, @ptrCast(&write_info)), 0, null);
+
+    cmd.last_uniform_buffer = buffer;
+    cmd.last_uniform_offset = aligned_offset;
+
+    const sets = [_]c.VkDescriptorSet{desc_set};
+    c.vkCmdBindDescriptorSets(cmd.cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, cmd.pipeline_layout.?, 0, 1, @as([*]const c.VkDescriptorSet, @ptrCast(&sets)), 0, null);
 }
 
 pub const VulkanTexture = struct { image: c.VkImage, memory: c.VkDeviceMemory, view: c.VkImageView, width: u32, height: u32, sampler: c.VkSampler, descriptor_set: c.VkDescriptorSet, ycbcr_conversion: c.VkSamplerYcbcrConversion = null, format: zgraphics.ZawraGraphicsTextureFormat = .R8G8B8A8_Unorm };
@@ -3924,7 +4004,13 @@ pub fn createPipelineFromShadersPublic(surface: *VulkanSurface, vert: *VulkanSha
             .binding = 0,
             .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             .descriptorCount = 1,
-            .stageFlags = c.VK_SHADER_STAGE_FRAGMENT_BIT,
+            .stageFlags = c.VK_SHADER_STAGE_VERTEX_BIT | c.VK_SHADER_STAGE_FRAGMENT_BIT,
+        },
+        .{
+            .binding = 1,
+            .descriptorType = c.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .descriptorCount = 1,
+            .stageFlags = c.VK_SHADER_STAGE_VERTEX_BIT | c.VK_SHADER_STAGE_FRAGMENT_BIT,
         },
     };
     const descriptor_set_layout_info = c.VkDescriptorSetLayoutCreateInfo{
@@ -4068,7 +4154,13 @@ pub fn createPipelineFromShadersWithLayout(
             .binding = 0,
             .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             .descriptorCount = 1,
-            .stageFlags = c.VK_SHADER_STAGE_FRAGMENT_BIT,
+            .stageFlags = c.VK_SHADER_STAGE_VERTEX_BIT | c.VK_SHADER_STAGE_FRAGMENT_BIT,
+        },
+        .{
+            .binding = 1,
+            .descriptorType = c.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .descriptorCount = 1,
+            .stageFlags = c.VK_SHADER_STAGE_VERTEX_BIT | c.VK_SHADER_STAGE_FRAGMENT_BIT,
         },
     };
     const descriptor_set_layout_info = c.VkDescriptorSetLayoutCreateInfo{
@@ -4876,9 +4968,10 @@ fn createStencilPipelineWithState(
     };
 
     const dsl_bindings = [_]c.VkDescriptorSetLayoutBinding{
-        .{ .binding = 0, .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = c.VK_SHADER_STAGE_FRAGMENT_BIT },
+        .{ .binding = 0, .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = c.VK_SHADER_STAGE_VERTEX_BIT | c.VK_SHADER_STAGE_FRAGMENT_BIT },
+        .{ .binding = 1, .descriptorType = c.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, .stageFlags = c.VK_SHADER_STAGE_VERTEX_BIT | c.VK_SHADER_STAGE_FRAGMENT_BIT },
     };
-    const dsl_info = c.VkDescriptorSetLayoutCreateInfo{ .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO, .bindingCount = 1, .pBindings = @as([*]const c.VkDescriptorSetLayoutBinding, @ptrCast(&dsl_bindings)) };
+    const dsl_info = c.VkDescriptorSetLayoutCreateInfo{ .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO, .bindingCount = dsl_bindings.len, .pBindings = @as([*]const c.VkDescriptorSetLayoutBinding, @ptrCast(&dsl_bindings)) };
     var dsl: c.VkDescriptorSetLayout = null;
     if (c.vkCreateDescriptorSetLayout(surface.device, &dsl_info, null, &dsl) != c.VK_SUCCESS) return null;
 
@@ -5335,9 +5428,10 @@ pub fn createStencilPipeline(surface: *VulkanSurface, desc: *const @import("lib.
     };
 
     const dsl_bindings = [_]c.VkDescriptorSetLayoutBinding{
-        .{ .binding = 0, .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = c.VK_SHADER_STAGE_FRAGMENT_BIT },
+        .{ .binding = 0, .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = c.VK_SHADER_STAGE_VERTEX_BIT | c.VK_SHADER_STAGE_FRAGMENT_BIT },
+        .{ .binding = 1, .descriptorType = c.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, .stageFlags = c.VK_SHADER_STAGE_VERTEX_BIT | c.VK_SHADER_STAGE_FRAGMENT_BIT },
     };
-    const dsl_info = c.VkDescriptorSetLayoutCreateInfo{ .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO, .bindingCount = 1, .pBindings = @as([*]const c.VkDescriptorSetLayoutBinding, @ptrCast(&dsl_bindings)) };
+    const dsl_info = c.VkDescriptorSetLayoutCreateInfo{ .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO, .bindingCount = dsl_bindings.len, .pBindings = @as([*]const c.VkDescriptorSetLayoutBinding, @ptrCast(&dsl_bindings)) };
     var dsl: c.VkDescriptorSetLayout = null;
     if (c.vkCreateDescriptorSetLayout(surface.device, &dsl_info, null, &dsl) != c.VK_SUCCESS) return null;
 

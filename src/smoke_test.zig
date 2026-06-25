@@ -518,6 +518,27 @@ fn testDynamicShaderManagement(surface: zgraphics.ZawraGraphicsHandle) void {
 fn testUniformBuffers(surface: zgraphics.ZawraGraphicsHandle) void {
     std.debug.print("\n=== testUniformBuffers ===\n", .{});
 
+    const shaders = @import("shaders");
+    // Create pipeline with blending enabled to test blend state mapping
+    const pipeline_desc = zgraphics.PipelineDesc{
+        .vertex_shader = shaders.vert.ptr,
+        .vertex_shader_len = shaders.vert.len,
+        .pixel_shader = shaders.frag.ptr,
+        .pixel_shader_len = shaders.frag.len,
+        .blend_enable = 1,
+        .src_color_blend_factor = 6, // VK_BLEND_FACTOR_SRC_ALPHA
+        .dst_color_blend_factor = 7, // VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA
+        .color_blend_op = 0, // VK_BLEND_OP_ADD
+        .src_alpha_blend_factor = 1, // VK_BLEND_FACTOR_ONE
+        .dst_alpha_blend_factor = 0, // VK_BLEND_FACTOR_ZERO
+        .alpha_blend_op = 0, // VK_BLEND_OP_ADD
+    };
+    const pipeline = zgraphics.ZawraGraphics_CreatePipeline(surface, &pipeline_desc) orelse {
+        std.debug.print("testUniformBuffers: FAIL - pipeline creation with blending failed\n", .{});
+        return;
+    };
+    defer zgraphics.ZawraGraphics_DestroyPipeline(surface, pipeline);
+
     const buffer_size: usize = 256;
     std.debug.print("testUniformBuffers: creating uniform buffer ({} bytes)...\n", .{buffer_size});
     const buffer = zgraphics.ZawraGraphics_CreateUniformBuffer(surface, buffer_size);
@@ -525,6 +546,7 @@ fn testUniformBuffers(surface: zgraphics.ZawraGraphicsHandle) void {
         std.debug.print("testUniformBuffers: FAIL - createUniformBuffer returned null\n", .{});
         return;
     }
+    defer zgraphics.ZawraGraphics_DestroyBuffer(surface, buffer.?);
     std.debug.print("testUniformBuffers: uniform buffer created\n", .{});
 
     var test_data: [buffer_size]u8 = undefined;
@@ -537,15 +559,45 @@ fn testUniformBuffers(surface: zgraphics.ZawraGraphicsHandle) void {
     const uploaded = zgraphics.ZawraGraphics_UploadUniformBuffer(surface, buffer.?, &test_data, buffer_size);
     if (!uploaded) {
         std.debug.print("testUniformBuffers: FAIL - uploadUniformBuffer returned false\n", .{});
-        zgraphics.ZawraGraphics_DestroyBuffer(surface, buffer.?);
         return;
     }
     std.debug.print("testUniformBuffers: upload complete\n", .{});
 
-    std.debug.print("testUniformBuffers: destroying uniform buffer...\n", .{});
-    zgraphics.ZawraGraphics_DestroyBuffer(surface, buffer.?);
+    // Create a dummy texture for rendering so we have descriptor sets allocated to bind to
+    const tex_desc = zgraphics.ZawraGraphicsTextureDesc{
+        .format = .R8G8B8A8_Unorm,
+        .width = 4,
+        .height = 4,
+        .external_handle = null,
+    };
+    const texture = zgraphics.ZawraGraphics_CreateTexture(surface, &tex_desc) orelse {
+        std.debug.print("testUniformBuffers: FAIL - texture creation failed\n", .{});
+        return;
+    };
+    defer zgraphics.ZawraGraphics_DestroyTexture(surface, texture);
 
-    std.debug.print("testUniformBuffers: PASS - no crash\n", .{});
+    const cmd = zgraphics.ZawraGraphics_BeginCommandBuffer(surface) orelse {
+        std.debug.print("testUniformBuffers: FAIL - beginCommandBuffer failed\n", .{});
+        return;
+    };
+    zgraphics.ZawraGraphics_CmdClearColor(cmd, 0.0, 0.0, 0.0, 1.0);
+    zgraphics.ZawraGraphics_CmdBindPipeline(cmd, pipeline);
+
+    // Test dynamic viewport & scissor FFI
+    zgraphics.ZawraGraphics_CmdSetViewport(cmd, 0.0, 0.0, 100.0, 100.0, 0.0, 1.0);
+    zgraphics.ZawraGraphics_CmdSetScissor(cmd, 0, 0, 100, 100);
+
+    // Bind texture first to set current_descriptor_set in command buffer
+    zgraphics.ZawraGraphics_BindTexture(cmd, texture, 0);
+
+    // Test uniform buffer binding
+    zgraphics.ZawraGraphics_BindUniformBuffer(cmd, buffer.?, 1, 0);
+
+    zgraphics.ZawraGraphics_CmdDraw(cmd, 3, 1, 0, 0);
+    zgraphics.ZawraGraphics_SubmitCommandBuffer(surface, cmd);
+    zgraphics.ZawraGraphics_SwapBuffers(surface);
+
+    std.debug.print("testUniformBuffers: PASS - viewport/scissor and uniform buffer bound successfully\n", .{});
 }
 
 fn runP2Tests(surface: zgraphics.ZawraGraphicsHandle) void {

@@ -790,3 +790,21 @@ pub fn cmdSetStencilMask(cmd: *D3D12CommandBuffer, face_mask: u32, reference: u3
     _ = face_mask;
     _ = reference;
 }
+
+pub fn cmdSetViewport(cmd: *D3D12CommandBuffer, x: f32, y: f32, width: f32, height: f32, min_depth: f32, max_depth: f32) void {
+    _ = cmd;
+    _ = x;
+    _ = y;
+    _ = width;
+    _ = height;
+    _ = min_depth;
+    _ = max_depth;
+}
+
+pub fn cmdSetScissor(cmd: *D3D12CommandBuffer, x: i32, y: i32, width: u32, height: u32) void {
+    _ = cmd;
+    _ = x;
+    _ = y;
+    _ = width;
+    _ = height;
+}
