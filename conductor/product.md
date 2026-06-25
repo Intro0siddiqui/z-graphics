@@ -15,13 +15,10 @@ Z-Graphics (z-graphics) is a high-performance, low-latency, cross-platform Rende
 - Multi-backend rendering support (Vulkan, Metal, D3D12).
 - Zero-copy resource sharing: YUV/YCbCr formats, IOSurface (macOS), DMA-BUF (Linux).
 - Low-overhead drawing APIs supporting blending, custom pipelines, stencil-based clipping/masking, and multiple render targets (MRT).
+- Dynamic Viewport and Scissor adjustments at runtime.
+- Uniform Buffer Binding with dynamic state descriptor set updates and caching.
 
 ## Key Development Gaps to Address
-### Blocking Gaps:
-1. **Uniform Buffer Binding:** Complete `ZG_BindUniformBuffer` / platform stubs and integrate uniform buffers into pipeline layouts.
-2. **Blend State Configuration:** Implement blending toggles and configuration options in pipeline descriptors.
-3. **Dynamic Viewport and Scissor:** Add C FFI functions to set dynamic viewport and scissor states.
-
 ### Additional Gaps:
 1. **Offscreen Render Targets:** Enable rendering to texture with sampled bit for MRT surfaces.
 2. **Shader Compilation:** Pre-compile or support dynamic shader variants/modules.
