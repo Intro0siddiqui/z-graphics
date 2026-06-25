@@ -43,6 +43,8 @@ pub fn build(b: *std.Build) void {
     const instanced_vert_glsl = shaders_dir.path(b, "instanced.vert");
     const compute_comp_glsl = shaders_dir.path(b, "compute.comp");
 
+    const shader_test_frag_glsl = shaders_dir.path(b, "shader_test.frag");
+
     const compile_vert = b.addSystemCommand(&.{ "glslangValidator", "-V", "--target-env", "vulkan1.0", "-o" });
     const vert_spirv = compile_vert.addOutputFileArg("basic.vert.spv");
     compile_vert.addFileArg(basic_vert_glsl);
@@ -50,6 +52,10 @@ pub fn build(b: *std.Build) void {
     const compile_frag = b.addSystemCommand(&.{ "glslangValidator", "-V", "--target-env", "vulkan1.0", "-o" });
     const frag_spirv = compile_frag.addOutputFileArg("basic.frag.spv");
     compile_frag.addFileArg(basic_frag_glsl);
+
+    const compile_shader_test = b.addSystemCommand(&.{ "glslangValidator", "-V", "--target-env", "vulkan1.0", "-o" });
+    const shader_test_spirv = compile_shader_test.addOutputFileArg("shader_test.frag.spv");
+    compile_shader_test.addFileArg(shader_test_frag_glsl);
 
     const compile_instanced_vert = b.addSystemCommand(&.{ "glslangValidator", "-V", "--target-env", "vulkan1.0", "-o" });
     const instanced_vert_spirv = compile_instanced_vert.addOutputFileArg("instanced.vert.spv");
@@ -62,11 +68,13 @@ pub fn build(b: *std.Build) void {
     const shader_gen = b.addWriteFiles();
     _ = shader_gen.addCopyFile(vert_spirv, "basic.vert.spv");
     _ = shader_gen.addCopyFile(frag_spirv, "basic.frag.spv");
+    _ = shader_gen.addCopyFile(shader_test_spirv, "shader_test.frag.spv");
     _ = shader_gen.addCopyFile(instanced_vert_spirv, "instanced.vert.spv");
     _ = shader_gen.addCopyFile(compute_spirv, "compute.comp.spv");
     const shader_zig = shader_gen.add("shaders.zig",
         \\pub const vert = @embedFile("basic.vert.spv");
         \\pub const frag = @embedFile("basic.frag.spv");
+        \\pub const shader_test = @embedFile("shader_test.frag.spv");
         \\pub const instanced_vert = @embedFile("instanced.vert.spv");
         \\pub const compute = @embedFile("compute.comp.spv");
     );
