@@ -2508,8 +2508,9 @@ pub const VulkanCommandBuffer = struct {
     pipeline_layout: c.VkPipelineLayout = null,
     current_layer: LayerState = .{},
     current_descriptor_set: c.VkDescriptorSet = null,
-    last_uniform_buffer: ?*VulkanBuffer = null,
-    last_uniform_offset: u64 = 0,
+    last_descriptor_set: c.VkDescriptorSet = null,
+    last_bound_buffers: [16]?*VulkanBuffer = [_]?*VulkanBuffer{null} ** 16,
+    last_bound_offsets: [16]u64 = [_]u64{0} ** 16,
 };
 pub fn beginCommandBuffer(surface: *VulkanSurface) ?*VulkanCommandBuffer {
     if (builtin.os.tag != .linux) return null;
@@ -2535,8 +2536,11 @@ pub fn beginCommandBuffer(surface: *VulkanSurface) ?*VulkanCommandBuffer {
     surface.current_cmd.render_pass_began = false;
     surface.current_cmd.pipeline_layout = null;
     surface.current_cmd.current_descriptor_set = null;
-    surface.current_cmd.last_uniform_buffer = null;
-    surface.current_cmd.last_uniform_offset = 0;
+    surface.current_cmd.last_descriptor_set = null;
+    inline for (0..16) |i| {
+        surface.current_cmd.last_bound_buffers[i] = null;
+        surface.current_cmd.last_bound_offsets[i] = 0;
+    }
     std.debug.print("[ZG-DIAG] beginCommandBuffer OK: image_index={d} cmd={any}\n", .{ surface.image_index, surface.render_cmd });
     return &surface.current_cmd;
 }
@@ -3507,7 +3511,15 @@ pub fn cmdBindUniformBuffer(cmd: *VulkanCommandBuffer, buffer: *VulkanBuffer, bi
         std.debug.print("[Z-GRAPHICS] cmdBindUniformBuffer: WARNING offset={d} is not aligned to minUniformBufferOffsetAlignment={d}. Using aligned offset {d}.\n", .{ offset, alignment, aligned_offset });
     }
 
-    if (cmd.last_uniform_buffer == buffer and cmd.last_uniform_offset == aligned_offset) {
+    if (cmd.last_descriptor_set != desc_set) {
+        cmd.last_descriptor_set = desc_set;
+        inline for (0..16) |i| {
+            cmd.last_bound_buffers[i] = null;
+            cmd.last_bound_offsets[i] = 0;
+        }
+    }
+
+    if (binding < 16 and cmd.last_bound_buffers[binding] == buffer and cmd.last_bound_offsets[binding] == aligned_offset) {
         const sets = [_]c.VkDescriptorSet{desc_set};
         c.vkCmdBindDescriptorSets(cmd.cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, cmd.pipeline_layout.?, 0, 1, @as([*]const c.VkDescriptorSet, @ptrCast(&sets)), 0, null);
         return;
@@ -3532,8 +3544,10 @@ pub fn cmdBindUniformBuffer(cmd: *VulkanCommandBuffer, buffer: *VulkanBuffer, bi
     };
     c.vkUpdateDescriptorSets(cmd.surface.device, 1, @as([*]const c.VkWriteDescriptorSet, @ptrCast(&write_info)), 0, null);
 
-    cmd.last_uniform_buffer = buffer;
-    cmd.last_uniform_offset = aligned_offset;
+    if (binding < 16) {
+        cmd.last_bound_buffers[binding] = buffer;
+        cmd.last_bound_offsets[binding] = aligned_offset;
+    }
 
     const sets = [_]c.VkDescriptorSet{desc_set};
     c.vkCmdBindDescriptorSets(cmd.cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, cmd.pipeline_layout.?, 0, 1, @as([*]const c.VkDescriptorSet, @ptrCast(&sets)), 0, null);
@@ -3966,7 +3980,7 @@ pub fn destroyShaderModulePublic(surface: *VulkanSurface, module: *VulkanShaderM
     std.heap.page_allocator.destroy(module);
 }
 
-pub fn createPipelineFromShadersPublic(surface: *VulkanSurface, vert: *VulkanShaderModule, frag: *VulkanShaderModule) ?*VulkanPipeline {
+pub fn createPipelineFromShadersPublic(surface: *VulkanSurface, vert: *VulkanShaderModule, frag: *VulkanShaderModule, desc: ?*const @import("lib.zig").PipelineDesc) ?*VulkanPipeline {
     if (builtin.os.tag != .linux) return null;
 
     const shader_stages = [_]c.VkPipelineShaderStageCreateInfo{
@@ -3996,7 +4010,16 @@ pub fn createPipelineFromShadersPublic(surface: *VulkanSurface, vert: *VulkanSha
     const msaa_sample_shading_enable: u32 = if (surface.msaa_samples > 1) @as(u32, 1) else 0;
     const msaa_min_sample_shading: f32 = if (surface.msaa_samples > 1) 0.25 else 0;
     const multisampling = std.mem.zeroInit(c.VkPipelineMultisampleStateCreateInfo, .{ .sType = 24, .sampleShadingEnable = msaa_sample_shading_enable, .minSampleShading = msaa_min_sample_shading, .rasterizationSamples = msaa_rasterization_samples });
-    const color_blend_attachment = std.mem.zeroInit(c.VkPipelineColorBlendAttachmentState, .{ .colorWriteMask = 0xF, .blendEnable = 0 });
+    const color_blend_attachment = std.mem.zeroInit(c.VkPipelineColorBlendAttachmentState, .{
+        .colorWriteMask = 0xF,
+        .blendEnable = if (desc) |d| d.blend_enable else 0,
+        .srcColorBlendFactor = if (desc) |d| d.src_color_blend_factor else 0,
+        .dstColorBlendFactor = if (desc) |d| d.dst_color_blend_factor else 0,
+        .colorBlendOp = if (desc) |d| d.color_blend_op else 0,
+        .srcAlphaBlendFactor = if (desc) |d| d.src_alpha_blend_factor else 0,
+        .dstAlphaBlendFactor = if (desc) |d| d.dst_alpha_blend_factor else 0,
+        .alphaBlendOp = if (desc) |d| d.alpha_blend_op else 0,
+    });
     const color_blending = std.mem.zeroInit(c.VkPipelineColorBlendStateCreateInfo, .{ .sType = 26, .logicOpEnable = 0, .attachmentCount = 1, .pAttachments = @as([*]const c.VkPipelineColorBlendAttachmentState, @ptrCast(&color_blend_attachment)) });
 
     const descriptor_set_layout_bindings = [_]c.VkDescriptorSetLayoutBinding{
@@ -4082,13 +4105,13 @@ pub fn createPipelineFromShadersPublic(surface: *VulkanSurface, vert: *VulkanSha
     vulkan_pipeline.* = .{ .pipeline = graphics_pipeline, .layout = pipeline_layout };
     return vulkan_pipeline;
 }
-
 pub fn createPipelineFromShadersWithLayout(
     surface: *VulkanSurface,
     vert: *VulkanShaderModule,
     frag: *VulkanShaderModule,
     bindings: ?[]const VertexBinding,
     attributes: ?[]const VertexAttribute,
+    desc: ?*const @import("lib.zig").PipelineDesc,
 ) ?*VulkanPipeline {
     if (builtin.os.tag != .linux) return null;
 
@@ -4146,7 +4169,16 @@ pub fn createPipelineFromShadersWithLayout(
     const msaa_sample_shading_enable: u32 = if (surface.msaa_samples > 1) @as(u32, 1) else 0;
     const msaa_min_sample_shading: f32 = if (surface.msaa_samples > 1) 0.25 else 0;
     const multisampling = std.mem.zeroInit(c.VkPipelineMultisampleStateCreateInfo, .{ .sType = 24, .sampleShadingEnable = msaa_sample_shading_enable, .minSampleShading = msaa_min_sample_shading, .rasterizationSamples = msaa_rasterization_samples });
-    const color_blend_attachment = std.mem.zeroInit(c.VkPipelineColorBlendAttachmentState, .{ .colorWriteMask = 0xF, .blendEnable = 0 });
+    const color_blend_attachment = std.mem.zeroInit(c.VkPipelineColorBlendAttachmentState, .{
+        .colorWriteMask = 0xF,
+        .blendEnable = if (desc) |d| d.blend_enable else 0,
+        .srcColorBlendFactor = if (desc) |d| d.src_color_blend_factor else 0,
+        .dstColorBlendFactor = if (desc) |d| d.dst_color_blend_factor else 0,
+        .colorBlendOp = if (desc) |d| d.color_blend_op else 0,
+        .srcAlphaBlendFactor = if (desc) |d| d.src_alpha_blend_factor else 0,
+        .dstAlphaBlendFactor = if (desc) |d| d.dst_alpha_blend_factor else 0,
+        .alphaBlendOp = if (desc) |d| d.alpha_blend_op else 0,
+    });
     const color_blending = std.mem.zeroInit(c.VkPipelineColorBlendStateCreateInfo, .{ .sType = 26, .logicOpEnable = 0, .attachmentCount = 1, .pAttachments = @as([*]const c.VkPipelineColorBlendAttachmentState, @ptrCast(&color_blend_attachment)) });
 
     const descriptor_set_layout_bindings = [_]c.VkDescriptorSetLayoutBinding{
@@ -4917,7 +4949,6 @@ pub const StencilSurface = struct {
     descriptor_set: c.VkDescriptorSet,
     began: bool,
 };
-
 fn createStencilPipelineWithState(
     surface: *VulkanSurface,
     render_pass: c.VkRenderPass,
@@ -4930,6 +4961,7 @@ fn createStencilPipelineWithState(
     reference: u32,
     write_mask: u32,
     compare_mask: u32,
+    desc: ?*const @import("lib.zig").PipelineDesc,
 ) ?struct { pipeline: c.VkPipeline, layout: c.VkPipelineLayout, dsl: c.VkDescriptorSetLayout } {
     const shader_stages = [_]c.VkPipelineShaderStageCreateInfo{
         .{ .sType = 18, .stage = c.VK_SHADER_STAGE_VERTEX_BIT, .module = vert_module, .pName = "main" },
@@ -4951,7 +4983,16 @@ fn createStencilPipelineWithState(
     const viewport_state = std.mem.zeroInit(c.VkPipelineViewportStateCreateInfo, .{ .sType = 22, .viewportCount = 1, .scissorCount = 1 });
     const rasterizer = std.mem.zeroInit(c.VkPipelineRasterizationStateCreateInfo, .{ .sType = 23, .depthClampEnable = 0, .rasterizerDiscardEnable = 0, .polygonMode = c.VK_POLYGON_MODE_FILL, .lineWidth = 1, .cullMode = c.VK_CULL_MODE_NONE, .frontFace = c.VK_FRONT_FACE_CLOCKWISE, .depthBiasEnable = 0 });
     const multisampling = std.mem.zeroInit(c.VkPipelineMultisampleStateCreateInfo, .{ .sType = 24, .rasterizationSamples = c.VK_SAMPLE_COUNT_1_BIT });
-    const color_blend_attachment = std.mem.zeroInit(c.VkPipelineColorBlendAttachmentState, .{ .colorWriteMask = 0xF, .blendEnable = 0 });
+    const color_blend_attachment = std.mem.zeroInit(c.VkPipelineColorBlendAttachmentState, .{
+        .colorWriteMask = 0xF,
+        .blendEnable = if (desc) |d| d.blend_enable else 0,
+        .srcColorBlendFactor = if (desc) |d| d.src_color_blend_factor else 0,
+        .dstColorBlendFactor = if (desc) |d| d.dst_color_blend_factor else 0,
+        .colorBlendOp = if (desc) |d| d.color_blend_op else 0,
+        .srcAlphaBlendFactor = if (desc) |d| d.src_alpha_blend_factor else 0,
+        .dstAlphaBlendFactor = if (desc) |d| d.dst_alpha_blend_factor else 0,
+        .alphaBlendOp = if (desc) |d| d.alpha_blend_op else 0,
+    });
     const color_blending = std.mem.zeroInit(c.VkPipelineColorBlendStateCreateInfo, .{ .sType = 26, .logicOpEnable = 0, .attachmentCount = 1, .pAttachments = @as([*]const c.VkPipelineColorBlendAttachmentState, @ptrCast(&color_blend_attachment)) });
 
     const depth_stencil = c.VkPipelineDepthStencilStateCreateInfo{
@@ -5133,8 +5174,8 @@ pub fn createStencilSurface(surface: *VulkanSurface, width: u32, height: u32) ?*
     const sf_module = createShaderModule(surface.device, shaders.frag) orelse return null;
     defer c.vkDestroyShaderModule(surface.device, sf_module, null);
 
-    const write_result = createStencilPipelineWithState(surface, render_pass, sv_module, sf_module, c.VK_COMPARE_OP_ALWAYS, c.VK_STENCIL_OP_REPLACE, c.VK_STENCIL_OP_KEEP, c.VK_STENCIL_OP_KEEP, 1, 0xFF, 0xFF) orelse return null;
-    const test_result = createStencilPipelineWithState(surface, render_pass, sv_module, sf_module, c.VK_COMPARE_OP_EQUAL, c.VK_STENCIL_OP_KEEP, c.VK_STENCIL_OP_KEEP, c.VK_STENCIL_OP_KEEP, 1, 0x00, 0xFF) orelse return null;
+    const write_result = createStencilPipelineWithState(surface, render_pass, sv_module, sf_module, c.VK_COMPARE_OP_ALWAYS, c.VK_STENCIL_OP_REPLACE, c.VK_STENCIL_OP_KEEP, c.VK_STENCIL_OP_KEEP, 1, 0xFF, 0xFF, null) orelse return null;
+    const test_result = createStencilPipelineWithState(surface, render_pass, sv_module, sf_module, c.VK_COMPARE_OP_EQUAL, c.VK_STENCIL_OP_KEEP, c.VK_STENCIL_OP_KEEP, c.VK_STENCIL_OP_KEEP, 1, 0x00, 0xFF, null) orelse return null;
 
     const sampler_info = std.mem.zeroInit(c.VkSamplerCreateInfo, .{
         .sType = 35, // VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO
@@ -5410,8 +5451,18 @@ pub fn createStencilPipeline(surface: *VulkanSurface, desc: *const @import("lib.
     var dynamic_state_info = c.VkPipelineDynamicStateCreateInfo{ .sType = 27, .dynamicStateCount = 2, .pDynamicStates = @as([*]const u32, @ptrCast(&dynamic_states)) };
     const viewport_state = std.mem.zeroInit(c.VkPipelineViewportStateCreateInfo, .{ .sType = 22, .viewportCount = 1, .scissorCount = 1 });
     const rasterizer = std.mem.zeroInit(c.VkPipelineRasterizationStateCreateInfo, .{ .sType = 23, .depthClampEnable = 0, .rasterizerDiscardEnable = 0, .polygonMode = c.VK_POLYGON_MODE_FILL, .lineWidth = 1, .cullMode = c.VK_CULL_MODE_NONE, .frontFace = c.VK_FRONT_FACE_CLOCKWISE, .depthBiasEnable = 0 });
+
     const multisampling = std.mem.zeroInit(c.VkPipelineMultisampleStateCreateInfo, .{ .sType = 24, .rasterizationSamples = c.VK_SAMPLE_COUNT_1_BIT });
-    const color_blend_attachment = std.mem.zeroInit(c.VkPipelineColorBlendAttachmentState, .{ .colorWriteMask = 0xF, .blendEnable = 0 });
+    const color_blend_attachment = std.mem.zeroInit(c.VkPipelineColorBlendAttachmentState, .{
+        .colorWriteMask = 0xF,
+        .blendEnable = desc.blend_enable,
+        .srcColorBlendFactor = desc.src_color_blend_factor,
+        .dstColorBlendFactor = desc.dst_color_blend_factor,
+        .colorBlendOp = desc.color_blend_op,
+        .srcAlphaBlendFactor = desc.src_alpha_blend_factor,
+        .dstAlphaBlendFactor = desc.dst_alpha_blend_factor,
+        .alphaBlendOp = desc.alpha_blend_op,
+    });
     const color_blending = std.mem.zeroInit(c.VkPipelineColorBlendStateCreateInfo, .{ .sType = 26, .logicOpEnable = 0, .attachmentCount = 1, .pAttachments = @as([*]const c.VkPipelineColorBlendAttachmentState, @ptrCast(&color_blend_attachment)) });
 
     const depth_stencil = c.VkPipelineDepthStencilStateCreateInfo{

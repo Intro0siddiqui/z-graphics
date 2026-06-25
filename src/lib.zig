@@ -353,7 +353,8 @@ pub export fn ZawraGraphics_DestroyShaderModule(handle: ?ZawraGraphicsHandle, mo
 
 pub export fn ZawraGraphics_CreatePipelineFromShaders(handle: ?ZawraGraphicsHandle, vert: ?ZawraGraphicsShaderModule, frag: ?ZawraGraphicsShaderModule) ?ZawraGraphicsPipeline {
     if (handle == null or vert == null or frag == null) return null;
-    if (builtin.os.tag == .linux) return @ptrCast(linux_vulkan.createPipelineFromShadersPublic(@ptrCast(@alignCast(handle.?)), @ptrCast(@alignCast(vert.?)), @ptrCast(@alignCast(frag.?))));
+
+    if (builtin.os.tag == .linux) return @ptrCast(linux_vulkan.createPipelineFromShadersPublic(@ptrCast(@alignCast(handle.?)), @ptrCast(@alignCast(vert.?)), @ptrCast(@alignCast(frag.?)), null));
     if (builtin.os.tag == .macos) return @ptrCast(macos_metal.createPipelineFromShadersPublic(@ptrCast(@alignCast(handle.?)), @ptrCast(@alignCast(vert.?)), @ptrCast(@alignCast(frag.?))));
     if (builtin.os.tag == .windows) return @ptrCast(windows_d3d12.createPipelineFromShadersPublic(@ptrCast(@alignCast(handle.?)), @ptrCast(@alignCast(vert.?)), @ptrCast(@alignCast(frag.?))));
     return null;
@@ -461,6 +462,7 @@ pub export fn ZawraGraphics_CreatePipelineWithLayout(
             @ptrCast(@alignCast(frag.?)),
             binding_slice,
             attr_slice,
+            null,
         ));
     }
     return null;
