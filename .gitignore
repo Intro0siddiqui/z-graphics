@@ -2,8 +2,13 @@
 zig-out/
 *.a
 *.o
+*.so
 *.exe
 *.pdb
 .kilo/
 libz-graphics.a
-test_data/combined_240.yuv
+*.spv
+*.mp4
+*.jpg
+*.png
+test_data/
