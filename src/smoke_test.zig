@@ -6,6 +6,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     var run_video = false;
     var run_p2 = false;
     var run_p3 = false;
+    var run_p4 = false;
     var arg_it = init.args.iterate();
     _ = arg_it.next();
     while (arg_it.next()) |arg| {
@@ -13,14 +14,16 @@ pub fn main(init: std.process.Init.Minimal) !void {
         if (std.mem.eql(u8, arg, "--video")) run_video = true;
         if (std.mem.eql(u8, arg, "--p2")) run_p2 = true;
         if (std.mem.eql(u8, arg, "--p3")) run_p3 = true;
+        if (std.mem.eql(u8, arg, "--p4")) run_p4 = true;
         if (std.mem.eql(u8, arg, "--all")) {
             run_image = true;
             run_video = true;
             run_p2 = true;
             run_p3 = true;
+            run_p4 = true;
         }
     }
-    if (!run_image and !run_video and !run_p2 and !run_p3) {
+    if (!run_image and !run_video and !run_p2 and !run_p3 and !run_p4) {
         run_image = true;
     }
 
@@ -41,6 +44,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     if (run_video) runVideoTests(surface);
     if (run_p2) runP2Tests(surface);
     if (run_p3) runP3Tests(surface);
+    if (run_p4) runP4Tests(surface);
 
     zgraphics.ZawraGraphics_DestroySurface(surface);
 }
@@ -1470,6 +1474,345 @@ fn testUniformBufferOffsets(surface: zgraphics.ZawraGraphicsHandle) void {
     }
 }
 
+fn runP4Tests(surface: zgraphics.ZawraGraphicsHandle) void {
+    std.debug.print("\n--- P4 TESTS ---\n", .{});
+    testUploadTextureRegion(surface);
+    testRenderbuffer(surface);
+    testFramebuffer(surface);
+    testFramebufferWithRenderbuffer(surface);
+    testSetTextureParams(surface);
+    testGetDeviceProperty(surface);
+    testCmdClearAttachments(surface);
+    testCmdCopyTexture(surface);
+}
+
+fn testUploadTextureRegion(surface: zgraphics.ZawraGraphicsHandle) void {
+    std.debug.print("\n=== testUploadTextureRegion ===\n", .{});
+
+    const width: u32 = 8;
+    const height: u32 = 8;
+    const tex_desc = zgraphics.ZawraGraphicsTextureDesc{
+        .format = .R8G8B8A8_Unorm,
+        .width = width,
+        .height = height,
+        .external_handle = null,
+    };
+    const texture = zgraphics.ZawraGraphics_CreateTexture(surface, &tex_desc) orelse {
+        std.debug.print("testUploadTextureRegion: FAIL - texture creation failed\n", .{});
+        return;
+    };
+    defer zgraphics.ZawraGraphics_DestroyTexture(surface, texture);
+
+    // Fill entire texture with black first
+    var black_data: [8 * 8 * 4]u8 = [_]u8{0} ** (8 * 8 * 4);
+    _ = zgraphics.ZawraGraphics_UploadTexture(surface, texture, &black_data, 8 * 8 * 4);
+
+    // Create a 4x4 red region to upload at offset (2, 2)
+    const region_w: usize = 4;
+    const region_h: usize = 4;
+    const pixel_size: usize = 4;
+    var region_data: [4 * 4 * 4]u8 = undefined;
+    var row: usize = 0;
+    while (row < region_h) : (row += 1) {
+        var col: usize = 0;
+        while (col < region_w) : (col += 1) {
+            const idx = (row * region_w + col) * pixel_size;
+            region_data[idx + 0] = 255; // R
+            region_data[idx + 1] = 0; // G
+            region_data[idx + 2] = 0; // B
+            region_data[idx + 3] = 255; // A
+        }
+    }
+
+    const uploaded = zgraphics.ZawraGraphics_UploadTextureRegion(
+        surface,
+        texture,
+        2, // x
+        2, // y
+        region_w,
+        region_h,
+        &region_data,
+        region_data.len,
+        0, // rowStride (0 = width * 4)
+        0, // srcOffsetX
+        0, // srcOffsetY
+    );
+    if (!uploaded) {
+        std.debug.print("testUploadTextureRegion: FAIL - uploadTextureRegion returned false\n", .{});
+        return;
+    }
+    std.debug.print("testUploadTextureRegion: uploaded 4x4 region at (2,2)\n", .{});
+
+    // Readback and verify
+    var readback: [8 * 8 * 4]u8 = undefined;
+    const readback_ok = zgraphics.ZawraGraphics_ReadbackTexture(surface, texture, &readback, 8 * 8 * 4);
+    if (!readback_ok) {
+        std.debug.print("testUploadTextureRegion: FAIL - readbackTexture returned false\n", .{});
+        return;
+    }
+
+    // Check pixel at (2,2) should be red
+    const idx_2_2 = (2 * 8 + 2) * 4;
+    const r = readback[idx_2_2];
+    const g = readback[idx_2_2 + 1];
+    const b = readback[idx_2_2 + 2];
+    std.debug.print("testUploadTextureRegion: pixel(2,2) = ({d},{d},{d})\n", .{ r, g, b });
+
+    // Check pixel at (0,0) should be black (not overwritten)
+    const idx_0_0 = 0;
+    const r0 = readback[idx_0_0];
+    const g0 = readback[idx_0_0 + 1];
+    const b0 = readback[idx_0_0 + 2];
+
+    if (r == 255 and g == 0 and b == 0 and r0 == 0 and g0 == 0 and b0 == 0) {
+        std.debug.print("testUploadTextureRegion: PASS - sub-rectangle upload correct\n", .{});
+    } else {
+        std.debug.print("testUploadTextureRegion: FAIL - pixel(2,2)=({d},{d},{d}) expected (255,0,0), pixel(0,0)=({d},{d},{d}) expected (0,0,0)\n", .{ r, g, b, r0, g0, b0 });
+    }
+}
+
+fn testRenderbuffer(surface: zgraphics.ZawraGraphicsHandle) void {
+    std.debug.print("\n=== testRenderbuffer ===\n", .{});
+
+    const rb = zgraphics.ZawraGraphics_CreateRenderbuffer(surface, 37, 64, 64); // VK_FORMAT_R8G8B8A8_UNORM = 37
+    if (rb == null) {
+        std.debug.print("testRenderbuffer: FAIL - createRenderbuffer returned null\n", .{});
+        return;
+    }
+    std.debug.print("testRenderbuffer: renderbuffer created (64x64 RGBA8)\n", .{});
+
+    zgraphics.ZawraGraphics_DestroyRenderbuffer(surface, rb);
+    std.debug.print("testRenderbuffer: PASS - create/destroy without crash\n", .{});
+}
+
+fn testFramebuffer(surface: zgraphics.ZawraGraphicsHandle) void {
+    std.debug.print("\n=== testFramebuffer ===\n", .{});
+
+    const tex_desc = zgraphics.ZawraGraphicsTextureDesc{
+        .format = .R8G8B8A8_Unorm,
+        .width = 64,
+        .height = 64,
+        .external_handle = null,
+    };
+    const texture = zgraphics.ZawraGraphics_CreateTexture(surface, &tex_desc) orelse {
+        std.debug.print("testFramebuffer: FAIL - texture creation failed\n", .{});
+        return;
+    };
+    defer zgraphics.ZawraGraphics_DestroyTexture(surface, texture);
+
+    const fb = zgraphics.ZawraGraphics_CreateFramebuffer(surface, texture, 64, 64, null) orelse {
+        std.debug.print("testFramebuffer: FAIL - createFramebuffer returned null\n", .{});
+        return;
+    };
+    std.debug.print("testFramebuffer: framebuffer created (64x64, color only)\n", .{});
+
+    // Attach texture to framebuffer
+    const attached = zgraphics.ZawraGraphics_FramebufferAttachTexture(surface, fb, 0, texture, 0);
+    if (attached) {
+        std.debug.print("testFramebuffer: texture attached to framebuffer\n", .{});
+    } else {
+        std.debug.print("testFramebuffer: WARN - framebufferAttachTexture returned false\n", .{});
+    }
+
+    zgraphics.ZawraGraphics_DestroyFramebuffer(surface, fb);
+    std.debug.print("testFramebuffer: PASS - create/attach/destroy without crash\n", .{});
+}
+
+fn testFramebufferWithRenderbuffer(surface: zgraphics.ZawraGraphicsHandle) void {
+    std.debug.print("\n=== testFramebufferWithRenderbuffer ===\n", .{});
+
+    const tex_desc = zgraphics.ZawraGraphicsTextureDesc{
+        .format = .R8G8B8A8_Unorm,
+        .width = 64,
+        .height = 64,
+        .external_handle = null,
+    };
+    const texture = zgraphics.ZawraGraphics_CreateTexture(surface, &tex_desc) orelse {
+        std.debug.print("testFramebufferWithRenderbuffer: FAIL - texture creation failed\n", .{});
+        return;
+    };
+    defer zgraphics.ZawraGraphics_DestroyTexture(surface, texture);
+
+    const rb = zgraphics.ZawraGraphics_CreateRenderbuffer(surface, 37, 64, 64) orelse {
+        std.debug.print("testFramebufferWithRenderbuffer: FAIL - createRenderbuffer returned null\n", .{});
+        return;
+    };
+    defer zgraphics.ZawraGraphics_DestroyRenderbuffer(surface, rb);
+
+    const fb = zgraphics.ZawraGraphics_CreateFramebuffer(surface, texture, 64, 64, rb) orelse {
+        std.debug.print("testFramebufferWithRenderbuffer: FAIL - createFramebuffer returned null\n", .{});
+        return;
+    };
+    std.debug.print("testFramebufferWithRenderbuffer: framebuffer created (64x64, color + depth/stencil)\n", .{});
+
+    // Test attach functions
+    _ = zgraphics.ZawraGraphics_FramebufferAttachTexture(surface, fb, 0, texture, 0);
+    _ = zgraphics.ZawraGraphics_FramebufferAttachRenderbuffer(surface, fb, 1, rb);
+
+    zgraphics.ZawraGraphics_DestroyFramebuffer(surface, fb);
+    std.debug.print("testFramebufferWithRenderbuffer: PASS - create/attach/destroy without crash\n", .{});
+}
+
+fn testSetTextureParams(surface: zgraphics.ZawraGraphicsHandle) void {
+    std.debug.print("\n=== testSetTextureParams ===\n", .{});
+
+    const tex_desc = zgraphics.ZawraGraphicsTextureDesc{
+        .format = .R8G8B8A8_Unorm,
+        .width = 4,
+        .height = 4,
+        .external_handle = null,
+    };
+    const texture = zgraphics.ZawraGraphics_CreateTexture(surface, &tex_desc) orelse {
+        std.debug.print("testSetTextureParams: FAIL - texture creation failed\n", .{});
+        return;
+    };
+    defer zgraphics.ZawraGraphics_DestroyTexture(surface, texture);
+
+    // Set to linear filter, clamp to edge
+    const ok = zgraphics.ZawraGraphics_SetTextureParams(surface, texture, 1, 1, 1, 1); // LINEAR, LINEAR, CLAMP_TO_EDGE, CLAMP_TO_EDGE
+    if (ok) {
+        std.debug.print("testSetTextureParams: PASS - SetTextureParams returned true\n", .{});
+    } else {
+        std.debug.print("testSetTextureParams: FAIL - SetTextureParams returned false\n", .{});
+    }
+
+    // Set to nearest filter, repeat
+    const ok2 = zgraphics.ZawraGraphics_SetTextureParams(surface, texture, 0, 0, 0, 0); // NEAREST, NEAREST, REPEAT, REPEAT
+    if (ok2) {
+        std.debug.print("testSetTextureParams: PASS - second SetTextureParams returned true\n", .{});
+    } else {
+        std.debug.print("testSetTextureParams: FAIL - second SetTextureParams returned false\n", .{});
+    }
+}
+
+fn testGetDeviceProperty(surface: zgraphics.ZawraGraphicsHandle) void {
+    std.debug.print("\n=== testGetDeviceProperty ===\n", .{});
+
+    // Property 0: MAX_TEXTURE_SIZE
+    const max_tex = zgraphics.ZawraGraphics_GetDeviceProperty(surface, 0);
+    std.debug.print("testGetDeviceProperty: MAX_TEXTURE_SIZE = {d}\n", .{max_tex});
+
+    // Property 1: NPOT_TEXTURE_SUPPORT
+    const npot = zgraphics.ZawraGraphics_GetDeviceProperty(surface, 1);
+    std.debug.print("testGetDeviceProperty: NPOT_TEXTURE_SUPPORT = {d}\n", .{npot});
+
+    // Property 2: UNPACK_SUBIMAGE_SUPPORT
+    const unpack = zgraphics.ZawraGraphics_GetDeviceProperty(surface, 2);
+    std.debug.print("testGetDeviceProperty: UNPACK_SUBIMAGE_SUPPORT = {d}\n", .{unpack});
+
+    if (max_tex > 0) {
+        std.debug.print("testGetDeviceProperty: PASS - MAX_TEXTURE_SIZE is valid\n", .{});
+    } else {
+        std.debug.print("testGetDeviceProperty: FAIL - MAX_TEXTURE_SIZE is 0\n", .{});
+    }
+}
+
+fn testCmdClearAttachments(surface: zgraphics.ZawraGraphicsHandle) void {
+    std.debug.print("\n=== testCmdClearAttachments ===\n", .{});
+
+    const shaders = @import("shaders");
+    const pipeline_desc = zgraphics.PipelineDesc{
+        .vertex_shader = shaders.vert.ptr,
+        .vertex_shader_len = shaders.vert.len,
+        .pixel_shader = shaders.frag.ptr,
+        .pixel_shader_len = shaders.frag.len,
+    };
+    const pipeline = zgraphics.ZawraGraphics_CreatePipeline(surface, &pipeline_desc) orelse {
+        std.debug.print("testCmdClearAttachments: FAIL - pipeline creation failed\n", .{});
+        return;
+    };
+    defer zgraphics.ZawraGraphics_DestroyPipeline(surface, pipeline);
+
+    const tex_desc = zgraphics.ZawraGraphicsTextureDesc{
+        .format = .R8G8B8A8_Unorm,
+        .width = 4,
+        .height = 4,
+        .external_handle = null,
+    };
+    const texture = zgraphics.ZawraGraphics_CreateTexture(surface, &tex_desc) orelse {
+        std.debug.print("testCmdClearAttachments: FAIL - texture creation failed\n", .{});
+        return;
+    };
+    defer zgraphics.ZawraGraphics_DestroyTexture(surface, texture);
+
+    const cmd = zgraphics.ZawraGraphics_BeginCommandBuffer(surface) orelse {
+        std.debug.print("testCmdClearAttachments: FAIL - beginCommandBuffer failed\n", .{});
+        return;
+    };
+
+    // Clear with blue
+    zgraphics.ZawraGraphics_CmdClearAttachments(cmd, true, false, false, 0.0, 0.0, 1.0, 1.0);
+    zgraphics.ZawraGraphics_CmdBindPipeline(cmd, pipeline);
+    zgraphics.ZawraGraphics_BindTexture(cmd, texture, 0);
+    zgraphics.ZawraGraphics_CmdDraw(cmd, 3, 1, 0, 0);
+    zgraphics.ZawraGraphics_SubmitCommandBuffer(surface, cmd);
+    zgraphics.ZawraGraphics_SwapBuffers(surface);
+
+    std.debug.print("testCmdClearAttachments: PASS - clear color + draw completed without crash\n", .{});
+}
+
+fn testCmdCopyTexture(surface: zgraphics.ZawraGraphicsHandle) void {
+    std.debug.print("\n=== testCmdCopyTexture ===\n", .{});
+
+    const tex_desc = zgraphics.ZawraGraphicsTextureDesc{
+        .format = .R8G8B8A8_Unorm,
+        .width = 4,
+        .height = 4,
+        .external_handle = null,
+    };
+    const src_tex = zgraphics.ZawraGraphics_CreateTexture(surface, &tex_desc) orelse {
+        std.debug.print("testCmdCopyTexture: FAIL - src texture creation failed\n", .{});
+        return;
+    };
+    defer zgraphics.ZawraGraphics_DestroyTexture(surface, src_tex);
+
+    const dst_tex = zgraphics.ZawraGraphics_CreateTexture(surface, &tex_desc) orelse {
+        std.debug.print("testCmdCopyTexture: FAIL - dst texture creation failed\n", .{});
+        return;
+    };
+    defer zgraphics.ZawraGraphics_DestroyTexture(surface, dst_tex);
+
+    // Upload known data to source
+    var pixel_data: [64]u8 = undefined;
+    for (&pixel_data, 0..) |*p, i| {
+        p.* = @intCast((i * 4) & 0xFF);
+    }
+    _ = zgraphics.ZawraGraphics_UploadTexture(surface, src_tex, &pixel_data, 64);
+
+    const cmd = zgraphics.ZawraGraphics_BeginCommandBuffer(surface) orelse {
+        std.debug.print("testCmdCopyTexture: FAIL - beginCommandBuffer failed\n", .{});
+        return;
+    };
+    zgraphics.ZawraGraphics_CmdCopyTexture(cmd, src_tex, dst_tex);
+    zgraphics.ZawraGraphics_SubmitCommandBuffer(surface, cmd);
+    zgraphics.ZawraGraphics_SwapBuffers(surface);
+
+    // Readback destination and verify it matches source
+    var readback: [64]u8 = undefined;
+    const readback_ok = zgraphics.ZawraGraphics_ReadbackTexture(surface, dst_tex, &readback, 64);
+    if (!readback_ok) {
+        std.debug.print("testCmdCopyTexture: FAIL - readbackTexture returned false\n", .{});
+        return;
+    }
+
+    var mismatch: usize = 0;
+    var i: usize = 0;
+    while (i < 64) : (i += 1) {
+        if (readback[i] != pixel_data[i]) {
+            if (mismatch < 5) {
+                std.debug.print("testCmdCopyTexture: MISMATCH at byte {d}: expected={d} got={d}\n", .{ i, pixel_data[i], readback[i] });
+            }
+            mismatch += 1;
+        }
+    }
+
+    if (mismatch == 0) {
+        std.debug.print("testCmdCopyTexture: PASS - all {d} bytes match after copy\n", .{64});
+    } else {
+        std.debug.print("testCmdCopyTexture: FAIL - {d} bytes mismatched\n", .{mismatch});
+    }
+}
+
 fn testAlphaBlendingCalculations(surface: zgraphics.ZawraGraphicsHandle) void {
     std.debug.print("\n=== testAlphaBlendingCalculations ===\n", .{});
     const mrt = zgraphics.ZawraGraphics_CreateMRTSurface(surface, 4, 4, 1);
@@ -1488,10 +1831,10 @@ fn testAlphaBlendingCalculations(surface: zgraphics.ZawraGraphicsHandle) void {
         .blend_enable = 1,
         .src_color_blend_factor = 6, // VK_BLEND_FACTOR_SRC_ALPHA
         .dst_color_blend_factor = 7, // VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA
-        .color_blend_op = 0,        // VK_BLEND_OP_ADD
+        .color_blend_op = 0, // VK_BLEND_OP_ADD
         .src_alpha_blend_factor = 1, // VK_BLEND_FACTOR_ONE
         .dst_alpha_blend_factor = 0, // VK_BLEND_FACTOR_ZERO
-        .alpha_blend_op = 0,        // VK_BLEND_OP_ADD
+        .alpha_blend_op = 0, // VK_BLEND_OP_ADD
     };
     const pipeline = zgraphics.ZawraGraphics_CreatePipeline(surface, &pipeline_desc);
     if (pipeline == null) {

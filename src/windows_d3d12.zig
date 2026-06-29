@@ -414,6 +414,18 @@ pub fn beginCommandBuffer(surface: *D3D12Surface) ?*D3D12CommandBuffer {
     return buf;
 }
 
+pub fn cmdClearAttachments(cmd: *D3D12CommandBuffer, color: bool, depth: bool, stencil: bool, r: f32, g: f32, b: f32, a: f32) void {
+    if (builtin.os.tag != .windows) return;
+    _ = cmd;
+    _ = color;
+    _ = depth;
+    _ = stencil;
+    _ = r;
+    _ = g;
+    _ = b;
+    _ = a;
+}
+
 pub fn cmdClearColor(cmd: *D3D12CommandBuffer, r: f32, g: f32, b: f32, a: f32) void {
     if (builtin.os.tag != .windows) return;
     if (cmd.cmd_list) |cmd_list| {
@@ -605,6 +617,23 @@ pub fn getBufferSize(buffer: *D3D12Buffer) usize {
 
 pub const D3D12Texture = struct { resource: ?*anyopaque };
 
+pub fn setTextureParams(
+    surface: *D3D12Surface,
+    texture: *D3D12Texture,
+    minFilter: u32,
+    magFilter: u32,
+    wrapS: u32,
+    wrapT: u32,
+) bool {
+    _ = surface;
+    _ = texture;
+    _ = minFilter;
+    _ = magFilter;
+    _ = wrapS;
+    _ = wrapT;
+    return false;
+}
+
 pub fn createTexture(surface: *D3D12Surface, desc: *const zgraphics.ZawraGraphicsTextureDesc) ?*D3D12Texture {
     if (builtin.os.tag != .windows) return null;
     switch (desc.format) {
@@ -791,6 +820,13 @@ pub fn cmdSetStencilMask(cmd: *D3D12CommandBuffer, face_mask: u32, reference: u3
     _ = reference;
 }
 
+pub fn cmdCopyTexture(cmd: *D3D12CommandBuffer, src: *D3D12Texture, dst: *D3D12Texture) void {
+    if (builtin.os.tag != .windows) return;
+    _ = cmd;
+    _ = src;
+    _ = dst;
+}
+
 pub fn cmdSetViewport(cmd: *D3D12CommandBuffer, x: f32, y: f32, width: f32, height: f32, min_depth: f32, max_depth: f32) void {
     _ = cmd;
     _ = x;
@@ -807,4 +843,10 @@ pub fn cmdSetScissor(cmd: *D3D12CommandBuffer, x: i32, y: i32, width: u32, heigh
     _ = y;
     _ = width;
     _ = height;
+}
+
+pub fn getDeviceProperty(handle: anytype, name: u32) u32 {
+    _ = handle;
+    _ = name;
+    return 0;
 }

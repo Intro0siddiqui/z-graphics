@@ -169,6 +169,12 @@ pub export fn ZawraGraphics_CmdClearColor(cmd: ZawraGraphicsCommandBuffer, r: f3
     if (builtin.os.tag == .windows) windows_d3d12.cmdClearColor(@ptrCast(@alignCast(cmd)), r, g, b, a);
 }
 
+pub export fn ZawraGraphics_CmdClearAttachments(cmd: ZawraGraphicsCommandBuffer, color: bool, depth: bool, stencil: bool, r: f32, g: f32, b: f32, a: f32) void {
+    if (builtin.os.tag == .linux) linux_vulkan.cmdClearAttachments(@ptrCast(@alignCast(cmd)), color, depth, stencil, r, g, b, a);
+    if (builtin.os.tag == .macos) macos_metal.cmdClearAttachments(@ptrCast(@alignCast(cmd)), color, depth, stencil, r, g, b, a);
+    if (builtin.os.tag == .windows) windows_d3d12.cmdClearAttachments(@ptrCast(@alignCast(cmd)), color, depth, stencil, r, g, b, a);
+}
+
 pub export fn ZawraGraphics_SubmitCommandBuffer(handle: ZawraGraphicsHandle, cmd: ZawraGraphicsCommandBuffer) void {
     if (builtin.os.tag == .linux) linux_vulkan.submitCommandBuffer(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(cmd)));
     if (builtin.os.tag == .macos) macos_metal.submitCommandBuffer(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(cmd)));
@@ -232,8 +238,66 @@ pub export fn ZawraGraphics_DestroyTexture(handle: ZawraGraphicsHandle, texture:
     if (builtin.os.tag == .windows) windows_d3d12.destroyTexture(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(texture.?)));
 }
 
+pub export fn ZawraGraphics_SetTextureParams(
+    handle: ZawraGraphicsHandle,
+    texture: ZawraGraphicsTexture,
+    minFilter: u32,
+    magFilter: u32,
+    wrapS: u32,
+    wrapT: u32,
+) bool {
+    if (builtin.os.tag == .linux) return linux_vulkan.setTextureParams(
+        @ptrCast(@alignCast(handle)),
+        @ptrCast(@alignCast(texture)),
+        minFilter,
+        magFilter,
+        wrapS,
+        wrapT,
+    );
+    if (builtin.os.tag == .macos) return macos_metal.setTextureParams(
+        @ptrCast(@alignCast(handle)),
+        @ptrCast(@alignCast(texture)),
+        minFilter,
+        magFilter,
+        wrapS,
+        wrapT,
+    );
+    if (builtin.os.tag == .windows) return windows_d3d12.setTextureParams(
+        @ptrCast(@alignCast(handle)),
+        @ptrCast(@alignCast(texture)),
+        minFilter,
+        magFilter,
+        wrapS,
+        wrapT,
+    );
+    return false;
+}
+
 pub export fn ZawraGraphics_UploadTexture(handle: ZawraGraphicsHandle, texture: ZawraGraphicsTexture, data: ?*const anyopaque, dataLen: usize) bool {
     if (builtin.os.tag == .linux) return linux_vulkan.uploadTexture(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(texture)), data, dataLen);
+    return false;
+}
+
+pub export fn ZawraGraphics_UploadTextureRegion(
+    surface_ptr: ?*anyopaque,
+    texture_ptr: ?*anyopaque,
+    x: i32,
+    y: u32,
+    width: u32,
+    height: u32,
+    data: ?[*]const u8,
+    data_len: u64,
+    row_stride: u32,
+    src_offset_x: u32,
+    src_offset_y: u32,
+) bool {
+    if (surface_ptr == null or texture_ptr == null or data == null or data_len == 0) return false;
+    if (builtin.os.tag == .linux) {
+        const surface: *linux_vulkan.VulkanSurface = @ptrCast(@alignCast(surface_ptr.?));
+        const tex: *linux_vulkan.VulkanTexture = @ptrCast(@alignCast(texture_ptr.?));
+        const data_slice: []const u8 = data.?[0..@intCast(data_len)];
+        return linux_vulkan.uploadTextureRegion(surface, tex, x, y, width, height, data_slice, row_stride, src_offset_x, src_offset_y);
+    }
     return false;
 }
 
@@ -298,6 +362,15 @@ pub export fn ZawraGraphics_CmdDraw(cmd: ZawraGraphicsCommandBuffer, vertex_coun
     if (builtin.os.tag == .linux) linux_vulkan.cmdDraw(@ptrCast(@alignCast(cmd)), vertex_count, instance_count, first_vertex, first_instance);
     if (builtin.os.tag == .macos) macos_metal.cmdDraw(@ptrCast(@alignCast(cmd)), vertex_count, instance_count, first_vertex, first_instance);
     if (builtin.os.tag == .windows) windows_d3d12.cmdDraw(@ptrCast(@alignCast(cmd)), vertex_count, instance_count, first_vertex, first_instance);
+}
+
+pub export fn ZG_CmdCopyTexture(cmd: ZawraGraphicsCommandBuffer, src: ZawraGraphicsTexture, dst: ZawraGraphicsTexture) void {
+    if (builtin.os.tag == .linux) linux_vulkan.cmdCopyTexture(@ptrCast(@alignCast(cmd)), @ptrCast(@alignCast(src)), @ptrCast(@alignCast(dst)));
+    if (builtin.os.tag == .macos) macos_metal.cmdCopyTexture(@ptrCast(@alignCast(cmd)), @ptrCast(@alignCast(src)), @ptrCast(@alignCast(dst)));
+    if (builtin.os.tag == .windows) windows_d3d12.cmdCopyTexture(@ptrCast(@alignCast(cmd)), @ptrCast(@alignCast(src)), @ptrCast(@alignCast(dst)));
+}
+pub export fn ZawraGraphics_CmdCopyTexture(cmd: ZawraGraphicsCommandBuffer, src: ZawraGraphicsTexture, dst: ZawraGraphicsTexture) void {
+    ZG_CmdCopyTexture(cmd, src, dst);
 }
 
 pub export fn ZG_CmdSetViewport(cmd: ZawraGraphicsCommandBuffer, x: f32, y: f32, width: f32, height: f32, min_depth: f32, max_depth: f32) void {
@@ -711,4 +784,98 @@ pub export fn ZawraGraphics_BindStencilTestPipeline(stencil_handle: ZawraGraphic
         const c_cmd: *linux_vulkan.VulkanCommandBuffer = @ptrCast(@alignCast(cmd));
         linux_vulkan.cmdBindStencilPipeline(c_cmd, stencil.test_pipeline, stencil.test_pipeline_layout, stencil.descriptor_set);
     }
+}
+
+pub export fn ZawraGraphics_GetDeviceProperty(handle: ZawraGraphicsHandle, name: u32) u32 {
+    if (builtin.os.tag == .linux) return linux_vulkan.getDeviceProperty(@ptrCast(@alignCast(handle)), name);
+    if (builtin.os.tag == .macos) return macos_metal.getDeviceProperty(@ptrCast(@alignCast(handle)), name);
+    if (builtin.os.tag == .windows) return windows_d3d12.getDeviceProperty(@ptrCast(@alignCast(handle)), name);
+    return 0;
+}
+
+pub const ZawraGraphicsRenderbuffer = *anyopaque;
+pub const ZawraGraphicsFramebuffer = *anyopaque;
+
+pub export fn ZawraGraphics_CreateRenderbuffer(handle: ZawraGraphicsHandle, format: u32, width: u32, height: u32) ?ZawraGraphicsRenderbuffer {
+    if (builtin.os.tag == .linux) {
+        const result = linux_vulkan.createRenderbuffer(@ptrCast(@alignCast(handle)), format, width, height);
+        if (result) |r| return @ptrCast(r);
+    }
+    return null;
+}
+
+pub export fn ZawraGraphics_DestroyRenderbuffer(handle: ZawraGraphicsHandle, renderbuffer: ?ZawraGraphicsRenderbuffer) void {
+    if (renderbuffer == null) return;
+    if (builtin.os.tag == .linux) linux_vulkan.destroyRenderbuffer(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(renderbuffer.?)));
+}
+
+pub export fn ZawraGraphics_CreateFramebuffer(
+    handle: ZawraGraphicsHandle,
+    color_texture: ?ZawraGraphicsTexture,
+    width: u32,
+    height: u32,
+    depth_stencil_rb: ?ZawraGraphicsRenderbuffer,
+) ?ZawraGraphicsFramebuffer {
+    if (builtin.os.tag == .linux) {
+        const result = linux_vulkan.createFramebuffer(
+            @ptrCast(@alignCast(handle)),
+            if (color_texture) |t| @ptrCast(@alignCast(t)) else null,
+            width,
+            height,
+            if (depth_stencil_rb) |rb| @ptrCast(@alignCast(rb)) else null,
+        );
+        if (result) |r| return @ptrCast(r);
+    }
+    return null;
+}
+
+pub export fn ZawraGraphics_DestroyFramebuffer(handle: ZawraGraphicsHandle, framebuffer: ?ZawraGraphicsFramebuffer) void {
+    if (framebuffer == null) return;
+    if (builtin.os.tag == .linux) linux_vulkan.destroyFramebuffer(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(framebuffer.?)));
+}
+
+pub export fn ZawraGraphics_CmdBindFramebuffer(handle: ZawraGraphicsHandle, cmd: ZawraGraphicsCommandBuffer, framebuffer: ZawraGraphicsFramebuffer) void {
+    if (builtin.os.tag == .linux) {
+        linux_vulkan.cmdBindFramebuffer(
+            @ptrCast(@alignCast(handle)),
+            @ptrCast(@alignCast(cmd)),
+            @ptrCast(@alignCast(framebuffer)),
+        );
+    }
+}
+
+pub export fn ZawraGraphics_FramebufferAttachTexture(
+    handle: ZawraGraphicsHandle,
+    framebuffer: ZawraGraphicsFramebuffer,
+    attachment: u32,
+    texture: ZawraGraphicsTexture,
+    mip_level: u32,
+) bool {
+    if (builtin.os.tag == .linux) {
+        return linux_vulkan.framebufferAttachTexture(
+            @ptrCast(@alignCast(handle)),
+            @ptrCast(@alignCast(framebuffer)),
+            attachment,
+            @ptrCast(@alignCast(texture)),
+            mip_level,
+        );
+    }
+    return false;
+}
+
+pub export fn ZawraGraphics_FramebufferAttachRenderbuffer(
+    handle: ZawraGraphicsHandle,
+    framebuffer: ZawraGraphicsFramebuffer,
+    attachment: u32,
+    renderbuffer: ZawraGraphicsRenderbuffer,
+) bool {
+    if (builtin.os.tag == .linux) {
+        return linux_vulkan.framebufferAttachRenderbuffer(
+            @ptrCast(@alignCast(handle)),
+            @ptrCast(@alignCast(framebuffer)),
+            attachment,
+            @ptrCast(@alignCast(renderbuffer)),
+        );
+    }
+    return false;
 }

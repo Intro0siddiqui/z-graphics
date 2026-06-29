@@ -605,6 +605,16 @@ const c = struct {
 
     pub const VkClearColorValue = extern union { float32: [4]f32, int32: [4]i32, uint32: [4]u32 };
     pub const VkClearValue = extern union { color: VkClearColorValue, depthStencil: extern struct { depth: f32, stencil: u32 } };
+    pub const VkClearAttachment = extern struct {
+        aspectMask: u32,
+        colorAttachment: u32,
+        clearValue: VkClearValue,
+    };
+    pub const VkClearRect = extern struct {
+        rect: VkRect2D,
+        baseArrayLayer: u32,
+        layerCount: u32,
+    };
 
     pub const VkRenderPassBeginInfo = extern struct {
         sType: VkStructureType = 43, // VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO
@@ -725,6 +735,7 @@ const c = struct {
     };
     pub extern "vulkan" fn vkCmdCopyBufferToImage(commandBuffer: VkCommandBuffer, srcBuffer: VkBuffer, dstImage: VkImage, dstImageLayout: u32, regionCount: u32, pRegions: [*]const VkBufferImageCopy) callconv(.c) void;
     pub extern "vulkan" fn vkCmdCopyImageToBuffer(commandBuffer: VkCommandBuffer, srcImage: VkImage, srcImageLayout: u32, dstBuffer: VkBuffer, regionCount: u32, pRegions: [*]const VkBufferImageCopy) callconv(.c) void;
+    pub extern "vulkan" fn vkCmdCopyImage(commandBuffer: VkCommandBuffer, srcImage: VkImage, srcImageLayout: u32, dstImage: VkImage, dstImageLayout: u32, regionCount: u32, pRegions: [*]const VkImageCopy) callconv(.c) void;
     pub extern "vulkan" fn vkCreateFramebuffer(device: VkDevice, pCreateInfo: *const VkFramebufferCreateInfo, pAllocator: ?*const anyopaque, pFramebuffer: *VkFramebuffer) callconv(.c) VkResult;
     pub extern "vulkan" fn vkDestroyFramebuffer(device: VkDevice, framebuffer: VkFramebuffer, pAllocator: ?*const anyopaque) callconv(.c) void;
     pub extern "vulkan" fn vkResetFences(device: VkDevice, fenceCount: u32, pFences: [*]const VkFence) callconv(.c) VkResult;
@@ -855,6 +866,14 @@ const c = struct {
         imageSubresource: VkImageSubresourceLayers,
         imageOffset: extern struct { x: i32 = 0, y: i32 = 0, z: i32 = 0 } = .{ .x = 0, .y = 0, .z = 0 },
         imageExtent: extern struct { width: u32, height: u32, depth: u32 } = .{ .width = 0, .height = 0, .depth = 0 },
+    };
+
+    pub const VkImageCopy = extern struct {
+        srcSubresource: VkImageSubresourceLayers,
+        srcOffset: extern struct { x: i32 = 0, y: i32 = 0, z: i32 = 0 },
+        dstSubresource: VkImageSubresourceLayers,
+        dstOffset: extern struct { x: i32 = 0, y: i32 = 0, z: i32 = 0 },
+        extent: extern struct { width: u32, height: u32, depth: u32 },
     };
 
     pub const VkImageSubresourceLayers = extern struct {
@@ -1374,6 +1393,17 @@ fn getMaxMSAASamples(physical_device: c.VkPhysicalDevice) u32 {
     if (color_counts & c.VK_SAMPLE_COUNT_4_BIT != 0) return 4;
     if (color_counts & c.VK_SAMPLE_COUNT_2_BIT != 0) return 2;
     return 1;
+}
+
+pub fn getDeviceProperty(handle: *VulkanSurface, name: u32) u32 {
+    if (name == 0) { // MAX_TEXTURE_SIZE
+        var props: c.VkPhysicalDeviceProperties = std.mem.zeroes(c.VkPhysicalDeviceProperties);
+        c.vkGetPhysicalDeviceProperties(handle.physical_device, &props);
+        return props.limits.maxImageDimension2D;
+    }
+    if (name == 1) return 1; // NPOT_SUPPORT
+    if (name == 2) return 1; // UNPACK_SUBIMAGE_SUPPORT
+    return 0;
 }
 
 pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*VulkanSurface {
@@ -2591,6 +2621,98 @@ pub fn cmdClearColor(cmd: *VulkanCommandBuffer, r: f32, g: f32, b: f32, a: f32) 
     std.debug.print("[ZG-DIAG] cmdClearColor OK: w={d} h={d} fb={any} msaa={d} clear=({d},{d},{d},{d})\n", .{ surface.width, surface.height, fb, surface.msaa_samples, r, g, b, a });
 }
 
+pub fn cmdClearAttachments(cmd: *VulkanCommandBuffer, color: bool, depth: bool, stencil: bool, r: f32, g: f32, b: f32, a: f32) void {
+    if (builtin.os.tag != .linux) return;
+    const surface = cmd.surface;
+    if (!cmd.render_pass_began) {
+        var fb = surface.framebuffer;
+        if (!surface.external_memory_enabled and surface.swapchain != null) {
+            fb = surface.swapchain_framebuffers[surface.image_index];
+        }
+        if (surface.msaa_samples > 1) {
+            const clear_values = [_]c.VkClearValue{
+                .{ .color = .{ .float32 = .{ r, g, b, a } } },
+                .{ .color = .{ .float32 = .{ 0, 0, 0, 0 } } },
+                .{ .depthStencil = .{ .depth = 1.0, .stencil = 0 } },
+            };
+            const begin_info = std.mem.zeroInit(c.VkRenderPassBeginInfo, .{
+                .sType = c.VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+                .renderPass = surface.render_pass,
+                .framebuffer = fb,
+                .renderArea = .{ .offset = .{ .x = 0, .y = 0 }, .extent = .{ .width = surface.width, .height = surface.height } },
+                .clearValueCount = 3,
+                .pClearValues = @as([*]const c.VkClearValue, @ptrCast(&clear_values)),
+            });
+            c.vkCmdBeginRenderPass(cmd.cmd, &begin_info, c.VK_SUBPASS_CONTENTS_INLINE);
+        } else {
+            const clear_value: c.VkClearValue = .{ .color = .{ .float32 = .{ r, g, b, a } } };
+            const begin_info = std.mem.zeroInit(c.VkRenderPassBeginInfo, .{
+                .sType = c.VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+                .renderPass = surface.render_pass,
+                .framebuffer = fb,
+                .renderArea = .{ .offset = .{ .x = 0, .y = 0 }, .extent = .{ .width = surface.width, .height = surface.height } },
+                .clearValueCount = 1,
+                .pClearValues = @as([*]const c.VkClearValue, @ptrCast(&clear_value)),
+            });
+            c.vkCmdBeginRenderPass(cmd.cmd, &begin_info, c.VK_SUBPASS_CONTENTS_INLINE);
+        }
+        cmd.render_pass_began = true;
+
+        const viewport = c.VkViewport{ .x = 0, .y = 0, .width = @floatFromInt(surface.width), .height = @floatFromInt(surface.height), .minDepth = 0, .maxDepth = 1 };
+        c.vkCmdSetViewport(cmd.cmd, 0, 1, @as([*]const c.VkViewport, @ptrCast(&viewport)));
+        const scissor = c.VkRect2D{ .offset = .{ .x = 0, .y = 0 }, .extent = .{ .width = surface.width, .height = surface.height } };
+        c.vkCmdSetScissor(cmd.cmd, 0, 1, @as([*]const c.VkRect2D, @ptrCast(&scissor)));
+    }
+
+    var attachments: [3]c.VkClearAttachment = undefined;
+    var attachment_count: u32 = 0;
+
+    if (color) {
+        attachments[attachment_count] = .{
+            .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT,
+            .colorAttachment = 0,
+            .clearValue = .{ .color = .{ .float32 = .{ r, g, b, a } } },
+        };
+        attachment_count += 1;
+    }
+
+    if (depth and stencil) {
+        attachments[attachment_count] = .{
+            .aspectMask = c.VK_IMAGE_ASPECT_DEPTH_BIT | c.VK_IMAGE_ASPECT_STENCIL_BIT,
+            .colorAttachment = 0,
+            .clearValue = .{ .depthStencil = .{ .depth = 1.0, .stencil = 0 } },
+        };
+        attachment_count += 1;
+    } else {
+        if (depth) {
+            attachments[attachment_count] = .{
+                .aspectMask = c.VK_IMAGE_ASPECT_DEPTH_BIT,
+                .colorAttachment = 0,
+                .clearValue = .{ .depthStencil = .{ .depth = 1.0, .stencil = 0 } },
+            };
+            attachment_count += 1;
+        }
+        if (stencil) {
+            attachments[attachment_count] = .{
+                .aspectMask = c.VK_IMAGE_ASPECT_STENCIL_BIT,
+                .colorAttachment = 0,
+                .clearValue = .{ .depthStencil = .{ .depth = 1.0, .stencil = 0 } },
+            };
+            attachment_count += 1;
+        }
+    }
+
+    if (attachment_count == 0) return;
+
+    const clear_rect = c.VkClearRect{
+        .rect = .{ .offset = .{ .x = 0, .y = 0 }, .extent = .{ .width = surface.width, .height = surface.height } },
+        .baseArrayLayer = 0,
+        .layerCount = 1,
+    };
+
+    c.vkCmdClearAttachments(cmd.cmd, attachment_count, @as([*]const c.VkClearAttachment, @ptrCast(&attachments)), 1, @as([*]const c.VkClearRect, @ptrCast(&clear_rect)));
+}
+
 pub fn cmdSetViewport(cmd: *VulkanCommandBuffer, x: f32, y: f32, width: f32, height: f32, min_depth: f32, max_depth: f32) void {
     if (builtin.os.tag != .linux) return;
     const viewport = c.VkViewport{ .x = x, .y = y, .width = width, .height = height, .minDepth = min_depth, .maxDepth = max_depth };
@@ -3045,6 +3167,84 @@ pub fn cmdBindVertexBuffers(cmd: *VulkanCommandBuffer, first_binding: u32, buffe
 pub fn cmdDrawInstanced(cmd: *VulkanCommandBuffer, vertex_count: u32, instance_count: u32, first_vertex: u32, first_instance: u32) void {
     if (builtin.os.tag != .linux) return;
     c.vkCmdDraw(cmd.cmd, vertex_count, instance_count, first_vertex, first_instance);
+}
+
+pub fn cmdCopyTexture(cmd: *VulkanCommandBuffer, src: *VulkanTexture, dst: *VulkanTexture) void {
+    if (builtin.os.tag != .linux) return;
+
+    // Transition src: GENERAL → TRANSFER_SRC_OPTIMAL
+    var src_barrier: c.VkImageMemoryBarrier = .{
+        .sType = 45,
+        .srcAccessMask = c.VK_ACCESS_SHADER_READ_BIT,
+        .dstAccessMask = c.VK_ACCESS_TRANSFER_READ_BIT,
+        .oldLayout = c.VK_IMAGE_LAYOUT_GENERAL,
+        .newLayout = c.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        .srcQueueFamilyIndex = c.VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = c.VK_QUEUE_FAMILY_IGNORED,
+        .image = src.image,
+        .subresourceRange = .{
+            .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel = 0,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = 1,
+        },
+    };
+    c.vkCmdPipelineBarrier(cmd.cmd, c.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, c.VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, null, 0, null, 1, @ptrCast(&src_barrier));
+
+    // Transition dst: GENERAL → TRANSFER_DST_OPTIMAL
+    var dst_barrier: c.VkImageMemoryBarrier = .{
+        .sType = 45,
+        .srcAccessMask = c.VK_ACCESS_SHADER_READ_BIT,
+        .dstAccessMask = c.VK_ACCESS_TRANSFER_WRITE_BIT,
+        .oldLayout = c.VK_IMAGE_LAYOUT_GENERAL,
+        .newLayout = c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        .srcQueueFamilyIndex = c.VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = c.VK_QUEUE_FAMILY_IGNORED,
+        .image = dst.image,
+        .subresourceRange = .{
+            .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel = 0,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = 1,
+        },
+    };
+    c.vkCmdPipelineBarrier(cmd.cmd, c.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, c.VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, null, 0, null, 1, @ptrCast(&dst_barrier));
+
+    // Copy image
+    const copy_region = c.VkImageCopy{
+        .srcSubresource = .{
+            .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT,
+            .mipLevel = 0,
+            .baseArrayLayer = 0,
+            .layerCount = 1,
+        },
+        .srcOffset = .{},
+        .dstSubresource = .{
+            .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT,
+            .mipLevel = 0,
+            .baseArrayLayer = 0,
+            .layerCount = 1,
+        },
+        .dstOffset = .{},
+        .extent = .{ .width = src.width, .height = src.height, .depth = 1 },
+    };
+    c.vkCmdCopyImage(cmd.cmd, src.image, c.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst.image, c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, @as([*]const c.VkImageCopy, @ptrCast(&copy_region)));
+
+    // Transition src back: TRANSFER_SRC_OPTIMAL → GENERAL
+    src_barrier.oldLayout = c.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    src_barrier.newLayout = c.VK_IMAGE_LAYOUT_GENERAL;
+    src_barrier.srcAccessMask = c.VK_ACCESS_TRANSFER_READ_BIT;
+    src_barrier.dstAccessMask = c.VK_ACCESS_SHADER_READ_BIT;
+    c.vkCmdPipelineBarrier(cmd.cmd, c.VK_PIPELINE_STAGE_TRANSFER_BIT, c.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, null, 0, null, 1, @ptrCast(&src_barrier));
+
+    // Transition dst back: TRANSFER_DST_OPTIMAL → GENERAL
+    dst_barrier.oldLayout = c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    dst_barrier.newLayout = c.VK_IMAGE_LAYOUT_GENERAL;
+    dst_barrier.srcAccessMask = c.VK_ACCESS_TRANSFER_WRITE_BIT;
+    dst_barrier.dstAccessMask = c.VK_ACCESS_SHADER_READ_BIT;
+    c.vkCmdPipelineBarrier(cmd.cmd, c.VK_PIPELINE_STAGE_TRANSFER_BIT, c.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, null, 0, null, 1, @ptrCast(&dst_barrier));
 }
 
 pub fn beginLayer(cmd: *VulkanCommandBuffer, layer_id: u32, x: f32, y: f32, width: f32, height: f32, opacity: f32) void {
@@ -3827,7 +4027,7 @@ pub fn importTextureFD(surface: *VulkanSurface, fd: i32, desc: *const zgraphics.
 
     var external_image_info = std.mem.zeroInit(c.VkExternalMemoryImageCreateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
-        .handleTypes = c.VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
+        .handleTypes = c.VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
     });
 
     const image_info = std.mem.zeroInit(c.VkImageCreateInfo, .{
@@ -3866,7 +4066,7 @@ pub fn importTextureFD(surface: *VulkanSurface, fd: i32, desc: *const zgraphics.
         c.vkDestroyImage(surface.device, image, null);
         return null;
     }
-    _ = pfnGetMemoryFdProperties.?(surface.device, c.VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT, fd, &fd_props);
+    _ = pfnGetMemoryFdProperties.?(surface.device, c.VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT, fd, &fd_props);
 
     var mem_type_index: ?u32 = null;
     for (0..32) |i| {
@@ -3887,7 +4087,7 @@ pub fn importTextureFD(surface: *VulkanSurface, fd: i32, desc: *const zgraphics.
 
     var import_fd_info = std.mem.zeroInit(c.VkImportMemoryFdInfoKHR, .{
         .sType = c.VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR,
-        .handleType = c.VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
+        .handleType = c.VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
         .fd = fd,
     });
 
@@ -4279,6 +4479,93 @@ pub fn destroyTexture(surface: *VulkanSurface, texture: *VulkanTexture) void {
     if (texture.memory != null) c.vkFreeMemory(surface.device, texture.memory, null);
     if (texture.image != null) c.vkDestroyImage(surface.device, texture.image, null);
     std.heap.page_allocator.destroy(texture);
+}
+
+pub fn setTextureParams(
+    surface: *VulkanSurface,
+    texture: *VulkanTexture,
+    minFilter: u32,
+    magFilter: u32,
+    wrapS: u32,
+    wrapT: u32,
+) bool {
+    if (builtin.os.tag != .linux) return false;
+
+    const vk_min_filter: u32 = switch (minFilter) {
+        0, 2 => 0,
+        1, 3 => 1,
+        else => return false,
+    };
+    const vk_mag_filter: u32 = switch (magFilter) {
+        0 => 0,
+        1 => 1,
+        else => return false,
+    };
+    const vk_mipmap_mode: u32 = switch (minFilter) {
+        0, 1 => 0,
+        2 => 0,
+        3 => 1,
+        else => 0,
+    };
+    const vk_wrap_u: u32 = switch (wrapS) {
+        0 => 0,
+        1 => 1,
+        2 => 2,
+        else => return false,
+    };
+    const vk_wrap_v: u32 = switch (wrapT) {
+        0 => 0,
+        1 => 1,
+        2 => 2,
+        else => return false,
+    };
+
+    if (texture.sampler != null) {
+        c.vkDestroySampler(surface.device, texture.sampler, null);
+        texture.sampler = null;
+    }
+
+    const sampler_info = std.mem.zeroInit(c.VkSamplerCreateInfo, .{
+        .sType = 31,
+        .magFilter = vk_mag_filter,
+        .minFilter = vk_min_filter,
+        .addressModeU = vk_wrap_u,
+        .addressModeV = vk_wrap_v,
+        .addressModeW = vk_wrap_u,
+        .anisotropyEnable = 0,
+        .unnormalizedCoordinates = 0,
+        .compareEnable = 0,
+        .compareOp = 0,
+        .mipmapMode = vk_mipmap_mode,
+        .minLod = 0,
+        .maxLod = 1000,
+    });
+    var new_sampler: c.VkSampler = null;
+    if (c.vkCreateSampler(surface.device, &sampler_info, null, &new_sampler) != c.VK_SUCCESS) {
+        return false;
+    }
+    texture.sampler = new_sampler;
+
+    if (texture.descriptor_set != null) {
+        const image_info = c.VkDescriptorImageInfo{
+            .sampler = new_sampler,
+            .imageView = texture.view,
+            .imageLayout = 1,
+        };
+        const write_info = c.VkWriteDescriptorSet{
+            .sType = 35,
+            .pNext = null,
+            .dstSet = texture.descriptor_set,
+            .dstBinding = 0,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+            .descriptorType = 1,
+            .pImageInfo = @as([*]const c.VkDescriptorImageInfo, @ptrCast(&image_info)),
+        };
+        c.vkUpdateDescriptorSets(surface.device, 1, @as([*]const c.VkWriteDescriptorSet, @ptrCast(&write_info)), 0, null);
+    }
+
+    return true;
 }
 
 pub fn readbackTexture(surface: *VulkanSurface, texture: *VulkanTexture, out_buf: ?[*]u8, len: usize) bool {
@@ -5519,4 +5806,361 @@ pub fn createStencilPipeline(surface: *VulkanSurface, desc: *const @import("lib.
     const vulkan_pipeline = std.heap.page_allocator.create(VulkanPipeline) catch return null;
     vulkan_pipeline.* = .{ .pipeline = pipeline, .layout = layout };
     return vulkan_pipeline;
+}
+
+// --- Renderbuffer ---
+
+pub const Renderbuffer = struct {
+    image: c.VkImage,
+    memory: c.VkDeviceMemory,
+    image_view: c.VkImageView,
+    format: c.VkFormat,
+    width: u32,
+    height: u32,
+};
+
+pub fn createRenderbuffer(surface: *VulkanSurface, format: u32, width: u32, height: u32) ?*Renderbuffer {
+    if (builtin.os.tag != .linux) return null;
+
+    const image_info = std.mem.zeroInit(c.VkImageCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .imageType = c.VK_IMAGE_TYPE_2D,
+        .extent = .{ .width = width, .height = height, .depth = 1 },
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .format = format,
+        .tiling = c.VK_IMAGE_TILING_OPTIMAL,
+        .initialLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
+        .usage = c.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | c.VK_IMAGE_USAGE_SAMPLED_BIT,
+        .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
+        .samples = c.VK_SAMPLE_COUNT_1_BIT,
+    });
+
+    var image: c.VkImage = null;
+    if (c.vkCreateImage(surface.device, &image_info, null, &image) != c.VK_SUCCESS) {
+        if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] createRenderbuffer: vkCreateImage failed\n", .{});
+        return null;
+    }
+
+    var mem_reqs: c.VkMemoryRequirements = undefined;
+    c.vkGetImageMemoryRequirements(surface.device, image, &mem_reqs);
+
+    const mem_type_index = findMemoryType(surface.physical_device, mem_reqs.memoryTypeBits, c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) orelse {
+        c.vkDestroyImage(surface.device, image, null);
+        return null;
+    };
+
+    var alloc_info = std.mem.zeroInit(c.VkMemoryAllocateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize = mem_reqs.size,
+        .memoryTypeIndex = mem_type_index,
+    });
+
+    var memory: c.VkDeviceMemory = null;
+    if (c.vkAllocateMemory(surface.device, &alloc_info, null, &memory) != c.VK_SUCCESS or c.vkBindImageMemory(surface.device, image, memory, 0) != c.VK_SUCCESS) {
+        c.vkDestroyImage(surface.device, image, null);
+        return null;
+    }
+
+    const view_info = std.mem.zeroInit(c.VkImageViewCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        .image = image,
+        .viewType = c.VK_IMAGE_VIEW_TYPE_2D,
+        .format = format,
+        .subresourceRange = .{ .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1 },
+    });
+
+    var view: c.VkImageView = null;
+    if (c.vkCreateImageView(surface.device, &view_info, null, &view) != c.VK_SUCCESS) {
+        c.vkFreeMemory(surface.device, memory, null);
+        c.vkDestroyImage(surface.device, image, null);
+        return null;
+    }
+
+    const rb = std.heap.page_allocator.create(Renderbuffer) catch {
+        c.vkDestroyImageView(surface.device, view, null);
+        c.vkFreeMemory(surface.device, memory, null);
+        c.vkDestroyImage(surface.device, image, null);
+        return null;
+    };
+    rb.* = .{ .image = image, .memory = memory, .image_view = view, .format = format, .width = width, .height = height };
+
+    if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] createRenderbuffer: {}x{} format={d}\n", .{ width, height, format });
+    return rb;
+}
+
+pub fn destroyRenderbuffer(surface: *VulkanSurface, renderbuffer: *Renderbuffer) void {
+    if (renderbuffer.image_view != null) c.vkDestroyImageView(surface.device, renderbuffer.image_view, null);
+    if (renderbuffer.memory != null) c.vkFreeMemory(surface.device, renderbuffer.memory, null);
+    if (renderbuffer.image != null) c.vkDestroyImage(surface.device, renderbuffer.image, null);
+    std.heap.page_allocator.destroy(renderbuffer);
+}
+
+// --- Framebuffer ---
+
+pub const Framebuffer = struct {
+    framebuffer: c.VkFramebuffer,
+    color_attachment: ?*VulkanTexture,
+    depth_stencil_attachment: ?*Renderbuffer,
+    width: u32,
+    height: u32,
+};
+
+pub fn createFramebuffer(surface: *VulkanSurface, color_texture: ?*VulkanTexture, width: u32, height: u32, depth_stencil_rb: ?*Renderbuffer) ?*Framebuffer {
+    if (builtin.os.tag != .linux) return null;
+
+    var attachments: [2]c.VkImageView = undefined;
+    var attachment_count: u32 = 0;
+
+    if (color_texture) |tex| {
+        attachments[attachment_count] = tex.view;
+        attachment_count += 1;
+    }
+    if (depth_stencil_rb) |rb| {
+        attachments[attachment_count] = rb.image_view;
+        attachment_count += 1;
+    }
+
+    if (attachment_count == 0) {
+        if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] createFramebuffer: no attachments provided\n", .{});
+        return null;
+    }
+
+    const fb_info = std.mem.zeroInit(c.VkFramebufferCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+        .renderPass = surface.render_pass,
+        .attachmentCount = attachment_count,
+        .pAttachments = @as([*]const c.VkImageView, @ptrCast(&attachments)),
+        .width = width,
+        .height = height,
+        .layers = 1,
+    });
+
+    var framebuffer: c.VkFramebuffer = null;
+    if (c.vkCreateFramebuffer(surface.device, &fb_info, null, &framebuffer) != c.VK_SUCCESS) {
+        if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] createFramebuffer: vkCreateFramebuffer failed\n", .{});
+        return null;
+    }
+
+    const fb = std.heap.page_allocator.create(Framebuffer) catch {
+        c.vkDestroyFramebuffer(surface.device, framebuffer, null);
+        return null;
+    };
+    fb.* = .{ .framebuffer = framebuffer, .color_attachment = color_texture, .depth_stencil_attachment = depth_stencil_rb, .width = width, .height = height };
+
+    if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] createFramebuffer: {}x{} attachments={d}\n", .{ width, height, attachment_count });
+    return fb;
+}
+
+pub fn destroyFramebuffer(surface: *VulkanSurface, framebuffer: *Framebuffer) void {
+    if (framebuffer.framebuffer != null) c.vkDestroyFramebuffer(surface.device, framebuffer.framebuffer, null);
+    std.heap.page_allocator.destroy(framebuffer);
+}
+
+pub fn cmdBindFramebuffer(surface: *VulkanSurface, cmd: *VulkanCommandBuffer, framebuffer: *Framebuffer) void {
+    if (builtin.os.tag != .linux) return;
+    if (cmd.render_pass_began) {
+        c.vkCmdEndRenderPass(cmd.cmd);
+        cmd.render_pass_began = false;
+    }
+
+    const clear_value: c.VkClearValue = .{ .color = .{ .float32 = .{ 0, 0, 0, 0 } } };
+    const begin_info = std.mem.zeroInit(c.VkRenderPassBeginInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+        .renderPass = surface.render_pass,
+        .framebuffer = framebuffer.framebuffer,
+        .renderArea = .{ .offset = .{ .x = 0, .y = 0 }, .extent = .{ .width = framebuffer.width, .height = framebuffer.height } },
+        .clearValueCount = 1,
+        .pClearValues = @as([*]const c.VkClearValue, @ptrCast(&clear_value)),
+    });
+    c.vkCmdBeginRenderPass(cmd.cmd, &begin_info, c.VK_SUBPASS_CONTENTS_INLINE);
+    cmd.render_pass_began = true;
+
+    const viewport = c.VkViewport{ .x = 0, .y = 0, .width = @floatFromInt(framebuffer.width), .height = @floatFromInt(framebuffer.height), .minDepth = 0, .maxDepth = 1 };
+    c.vkCmdSetViewport(cmd.cmd, 0, 1, @as([*]const c.VkViewport, @ptrCast(&viewport)));
+    const scissor = c.VkRect2D{ .offset = .{ .x = 0, .y = 0 }, .extent = .{ .width = framebuffer.width, .height = framebuffer.height } };
+    c.vkCmdSetScissor(cmd.cmd, 0, 1, @as([*]const c.VkRect2D, @ptrCast(&scissor)));
+
+    if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] cmdBindFramebuffer: {}x{}\n", .{ framebuffer.width, framebuffer.height });
+}
+
+pub fn framebufferAttachTexture(surface: *VulkanSurface, framebuffer: *Framebuffer, attachment: u32, texture: *VulkanTexture, mip_level: u32) bool {
+    _ = surface;
+    _ = attachment;
+    _ = mip_level;
+    framebuffer.color_attachment = texture;
+    return true;
+}
+
+pub fn framebufferAttachRenderbuffer(surface: *VulkanSurface, framebuffer: *Framebuffer, attachment: u32, renderbuffer: *Renderbuffer) bool {
+    _ = surface;
+    _ = attachment;
+    framebuffer.depth_stencil_attachment = renderbuffer;
+    return true;
+}
+
+pub fn uploadTextureRegion(
+    surface: *VulkanSurface,
+    texture: *VulkanTexture,
+    x: i32,
+    y: u32,
+    width: u32,
+    height: u32,
+    data: []const u8,
+    rowStride: u32,
+    srcOffsetX: u32,
+    srcOffsetY: u32,
+) bool {
+    if (builtin.os.tag != .linux) return false;
+    if (data.len == 0 or width == 0 or height == 0) return false;
+
+    const log = builtin.mode == .Debug;
+    if (log) std.debug.print("[Z-GRAPHICS] uploadTextureRegion: x={} y={} w={} h={} dataLen={} rowStride={} srcOff=({},{})\n", .{ x, y, width, height, data.len, rowStride, srcOffsetX, srcOffsetY });
+
+    const effective_row_stride = if (rowStride > 0) rowStride else width * 4;
+    const bytes_per_row = effective_row_stride;
+    const total_staging_size = @as(u64, bytes_per_row) * @as(u64, height);
+
+    const staging_info = std.mem.zeroInit(c.VkBufferCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .size = total_staging_size,
+        .usage = c.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
+    });
+
+    var staging: c.VkBuffer = null;
+    var r = c.vkCreateBuffer(surface.device, &staging_info, null, &staging);
+    if (log) std.debug.print("[Z-GRAPHICS] uploadTextureRegion: vkCreateBuffer staging result={} handle={any}\n", .{ r, staging });
+    if (r != c.VK_SUCCESS) return false;
+
+    var mem_reqs: c.VkMemoryRequirements = undefined;
+    c.vkGetBufferMemoryRequirements(surface.device, staging, &mem_reqs);
+
+    var alloc_info = std.mem.zeroInit(c.VkMemoryAllocateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize = mem_reqs.size,
+        .memoryTypeIndex = 0,
+    });
+
+    const props = c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    var found: ?u32 = null;
+    var mem_props: c.VkPhysicalDeviceMemoryProperties = undefined;
+    c.vkGetPhysicalDeviceMemoryProperties(surface.physical_device, &mem_props);
+    for (0..mem_props.memoryTypeCount) |i| {
+        if ((mem_reqs.memoryTypeBits & (@as(u32, 1) << @intCast(i))) != 0) {
+            if ((mem_props.memoryTypes[i].propertyFlags & props) == props) {
+                found = @intCast(i);
+                break;
+            }
+        }
+    }
+    alloc_info.memoryTypeIndex = found orelse {
+        if (log) std.debug.print("[Z-GRAPHICS] uploadTextureRegion: ERROR no HOST_VISIBLE|HOST_COHERENT mem type found\n", .{});
+        c.vkDestroyBuffer(surface.device, staging, null);
+        return false;
+    };
+
+    var staging_mem: c.VkDeviceMemory = null;
+    r = c.vkAllocateMemory(surface.device, &alloc_info, null, &staging_mem);
+    if (r != c.VK_SUCCESS) {
+        c.vkDestroyBuffer(surface.device, staging, null);
+        return false;
+    }
+    r = c.vkBindBufferMemory(surface.device, staging, staging_mem, 0);
+    if (r != c.VK_SUCCESS) {
+        c.vkFreeMemory(surface.device, staging_mem, null);
+        c.vkDestroyBuffer(surface.device, staging, null);
+        return false;
+    }
+
+    var data_ptr: ?*anyopaque = null;
+    r = c.vkMapMemory(surface.device, staging_mem, 0, total_staging_size, 0, &data_ptr);
+    if (r != c.VK_SUCCESS) {
+        c.vkFreeMemory(surface.device, staging_mem, null);
+        c.vkDestroyBuffer(surface.device, staging, null);
+        return false;
+    }
+
+    const dst = @as([*]u8, @ptrCast(@alignCast(data_ptr)));
+    const src = data.ptr;
+
+    var row: u32 = 0;
+    while (row < height) : (row += 1) {
+        const src_row_start = @as(u64, srcOffsetY + row) * @as(u64, effective_row_stride) + @as(u64, srcOffsetX * 4);
+        const dst_row_start = @as(u64, row) * @as(u64, bytes_per_row);
+        const copy_bytes = @as(u64, width) * 4;
+        if (src_row_start + copy_bytes <= data.len and dst_row_start + copy_bytes <= total_staging_size) {
+            @memcpy(dst[dst_row_start .. dst_row_start + copy_bytes], src[src_row_start .. src_row_start + copy_bytes]);
+        }
+    }
+
+    if (log) {
+        const check_ptr = @as([*]const u8, @ptrCast(@alignCast(data_ptr)));
+        std.debug.print("[Z-GRAPHICS] uploadTextureRegion: staging[0..4] = 0x{x} 0x{x} 0x{x} 0x{x}\n", .{ check_ptr[0], check_ptr[1], check_ptr[2], check_ptr[3] });
+    }
+    c.vkUnmapMemory(surface.device, staging_mem);
+
+    if (surface.transfer_pool == null or surface.transfer_cmd == null) {
+        c.vkFreeMemory(surface.device, staging_mem, null);
+        c.vkDestroyBuffer(surface.device, staging, null);
+        return false;
+    }
+
+    _ = c.vkResetCommandPool(surface.device, surface.transfer_pool, 0);
+
+    const begin_info = std.mem.zeroInit(c.VkCommandBufferBeginInfo, .{ .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, .flags = 1 }); // VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+    r = c.vkBeginCommandBuffer(surface.transfer_cmd, &begin_info);
+    if (r != c.VK_SUCCESS) {
+        c.vkFreeMemory(surface.device, staging_mem, null);
+        c.vkDestroyBuffer(surface.device, staging, null);
+        return false;
+    }
+
+    var barrier: c.VkImageMemoryBarrier = undefined;
+    barrier.sType = 45;
+    barrier.pNext = null;
+    barrier.srcAccessMask = 0;
+    barrier.dstAccessMask = c.VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.oldLayout = c.VK_IMAGE_LAYOUT_UNDEFINED;
+    barrier.newLayout = c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.srcQueueFamilyIndex = c.VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = c.VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = texture.image;
+    barrier.subresourceRange = .{ .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1 };
+
+    c.vkCmdPipelineBarrier(surface.transfer_cmd, c.VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, c.VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, null, 0, null, 1, @ptrCast(&barrier));
+
+    var region: c.VkBufferImageCopy = std.mem.zeroes(c.VkBufferImageCopy);
+    region.bufferOffset = 0;
+    region.bufferRowLength = effective_row_stride / 4;
+    region.bufferImageHeight = height;
+    region.imageSubresource.aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT;
+    region.imageSubresource.mipLevel = 0;
+    region.imageSubresource.baseArrayLayer = 0;
+    region.imageSubresource.layerCount = 1;
+    region.imageOffset = .{ .x = x, .y = @as(i32, @intCast(y)), .z = 0 };
+    region.imageExtent = .{ .width = width, .height = height, .depth = 1 };
+
+    if (log) std.debug.print("[Z-GRAPHICS] uploadTextureRegion: CopyBufferToImage staging={any} image={any} extent={}x{} offset={}x{} bufRowLength={}\n", .{ staging, texture.image, width, height, x, y, region.bufferRowLength });
+    c.vkCmdCopyBufferToImage(surface.transfer_cmd, staging, texture.image, c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, @ptrCast(&region));
+
+    barrier.oldLayout = c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.newLayout = c.VK_IMAGE_LAYOUT_GENERAL;
+    barrier.srcAccessMask = c.VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstAccessMask = c.VK_ACCESS_SHADER_READ_BIT;
+    c.vkCmdPipelineBarrier(surface.transfer_cmd, c.VK_PIPELINE_STAGE_TRANSFER_BIT, c.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, null, 0, null, 1, @ptrCast(&barrier));
+
+    r = c.vkEndCommandBuffer(surface.transfer_cmd);
+
+    const submit_info = std.mem.zeroInit(c.VkSubmitInfo, .{ .sType = c.VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = @as([*]const c.VkCommandBuffer, @ptrCast(&surface.transfer_cmd)) });
+    r = c.vkQueueSubmit(surface.graphics_queue, 1, @ptrCast(&submit_info), surface.fence);
+    r = c.vkWaitForFences(surface.device, 1, @ptrCast(&surface.fence), c.VK_TRUE, std.math.maxInt(u64));
+    r = c.vkResetFences(surface.device, 1, @ptrCast(&surface.fence));
+
+    if (log) std.debug.print("[Z-GRAPHICS] uploadTextureRegion: upload complete, image={any}\n", .{texture.image});
+
+    c.vkFreeMemory(surface.device, staging_mem, null);
+    c.vkDestroyBuffer(surface.device, staging, null);
+
+    return true;
 }

@@ -191,6 +191,18 @@ pub fn beginCommandBuffer(surface: *MetalSurface) ?*MetalCommandBuffer {
     return mcb;
 }
 
+pub fn cmdClearAttachments(cmd: *MetalCommandBuffer, color: bool, depth: bool, stencil: bool, r: f32, g: f32, b: f32, a: f32) void {
+    if (builtin.os.tag != .macos) return;
+    _ = cmd;
+    _ = color;
+    _ = depth;
+    _ = stencil;
+    _ = r;
+    _ = g;
+    _ = b;
+    _ = a;
+}
+
 pub fn cmdClearColor(cmd: *MetalCommandBuffer, r: f32, g: f32, b: f32, a: f32) void {
     if (builtin.os.tag != .macos) return;
     const MTLRenderPassDescriptor = objc_getClass("MTLRenderPassDescriptor") orelse return;
@@ -323,6 +335,23 @@ pub fn getBufferSize(buffer: *MetalBuffer) usize {
 }
 
 pub const MetalTexture = struct { texture: ?*anyopaque };
+
+pub fn setTextureParams(
+    surface: *MetalSurface,
+    texture: *MetalTexture,
+    minFilter: u32,
+    magFilter: u32,
+    wrapS: u32,
+    wrapT: u32,
+) bool {
+    _ = surface;
+    _ = texture;
+    _ = minFilter;
+    _ = magFilter;
+    _ = wrapS;
+    _ = wrapT;
+    return false;
+}
 
 pub fn createTexture(surface: *MetalSurface, desc: *const zgraphics.ZawraGraphicsTextureDesc) ?*MetalTexture {
     if (builtin.os.tag != .macos) return null;
@@ -495,6 +524,13 @@ pub fn cmdSetStencilMask(cmd: *MetalCommandBuffer, face_mask: u32, reference: u3
     _ = reference;
 }
 
+pub fn cmdCopyTexture(cmd: *MetalCommandBuffer, src: *MetalTexture, dst: *MetalTexture) void {
+    if (builtin.os.tag != .macos) return;
+    _ = cmd;
+    _ = src;
+    _ = dst;
+}
+
 pub fn cmdSetViewport(cmd: *MetalCommandBuffer, x: f32, y: f32, width: f32, height: f32, min_depth: f32, max_depth: f32) void {
     _ = cmd;
     _ = x;
@@ -511,4 +547,10 @@ pub fn cmdSetScissor(cmd: *MetalCommandBuffer, x: i32, y: i32, width: u32, heigh
     _ = y;
     _ = width;
     _ = height;
+}
+
+pub fn getDeviceProperty(handle: anytype, name: u32) u32 {
+    _ = handle;
+    _ = name;
+    return 0;
 }
