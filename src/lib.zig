@@ -9,11 +9,11 @@ const windows_d3d12 = if (builtin.os.tag == .windows) @import("windows_d3d12.zig
 const compositor = @import("renderer.zig");
 
 export fn _force_zgraphics_exports() void {
-    _ = compositor.ZawraGraphics_CompositorInitialize;
-    _ = compositor.ZawraGraphics_CompositorRenderLayer;
-    _ = compositor.ZawraGraphics_CompositorDestroy;
-    _ = compositor.ZawraGraphics_CompositorResize;
-    _ = compositor.ZawraGraphics_CompositorGetSurfaceHandle;
+    _ = compositor.ZG_CompositorInitialize;
+    _ = compositor.ZG_CompositorRenderLayer;
+    _ = compositor.ZG_CompositorDestroy;
+    _ = compositor.ZG_CompositorResize;
+    _ = compositor.ZG_CompositorGetSurfaceHandle;
 }
 
 /// The internal structure representing a graphics surface.
@@ -74,40 +74,7 @@ pub const PipelineDesc = extern struct {
 pub export fn ZG_Initialize() bool {
     return true;
 }
-pub export fn ZawraGraphics_Initialize() bool {
-    return ZG_Initialize();
-}
-pub export fn Z_Graphics_Initialize() bool {
-    return ZG_Initialize();
-}
 
-pub export fn Z_Graphics_CreateWindow(width: u32, height: u32) ?ZawraGraphicsHandle {
-    return ZawraGraphics_CreateWindow(width, height);
-}
-pub export fn Z_Graphics_CreateSurface(window: ?ZawraGraphicsHandle, width: u32, height: u32) ?ZawraGraphicsHandle {
-    return ZawraGraphics_CreateSurface(window, width, height);
-}
-pub export fn Z_Graphics_SwapBuffers(handle: ZawraGraphicsHandle) void {
-    ZawraGraphics_SwapBuffers(handle);
-}
-pub export fn Z_Graphics_ExportSurfaceFD(handle: ?ZawraGraphicsHandle) i32 {
-    return ZawraGraphics_ExportSurfaceFD(handle);
-}
-pub export fn Z_Graphics_DestroySurface(handle: ZawraGraphicsHandle) void {
-    ZawraGraphics_DestroySurface(handle);
-}
-pub export fn Z_Graphics_CompositorInitialize(surface: ?ZawraGraphicsHandle, width: u32, height: u32) ?*anyopaque {
-    return compositor.ZawraGraphics_CompositorInitialize(surface, width, height);
-}
-pub export fn Z_Graphics_CompositorRenderLayer(state: *anyopaque) bool {
-    return compositor.ZawraGraphics_CompositorRenderLayer(@ptrCast(@alignCast(state)));
-}
-pub export fn Z_Graphics_CompositorDestroy(state: *anyopaque) void {
-    compositor.ZawraGraphics_CompositorDestroy(@ptrCast(@alignCast(state)));
-}
-pub export fn Z_Graphics_CompositorResize(state: *anyopaque, new_width: u32, new_height: u32) bool {
-    return compositor.ZawraGraphics_CompositorResize(@ptrCast(@alignCast(state)), new_width, new_height);
-}
 
 pub export fn ZG_CreateSurface(window: ?ZawraGraphicsHandle, width: u32, height: u32) ?ZawraGraphicsHandle {
     if (builtin.os.tag == .linux) return @ptrCast(linux_vulkan.createSurface(window, width, height));
@@ -115,17 +82,11 @@ pub export fn ZG_CreateSurface(window: ?ZawraGraphicsHandle, width: u32, height:
     if (builtin.os.tag == .windows) return @ptrCast(windows_d3d12.createSurface(window, width, height));
     return null;
 }
-pub export fn ZawraGraphics_CreateSurface(window: ?ZawraGraphicsHandle, width: u32, height: u32) ?ZawraGraphicsHandle {
-    return ZG_CreateSurface(window, width, height);
-}
 
 pub export fn ZG_DestroySurface(handle: ZawraGraphicsHandle) void {
     if (builtin.os.tag == .linux) linux_vulkan.destroySurface(@ptrCast(@alignCast(handle)));
     if (builtin.os.tag == .macos) macos_metal.destroySurface(@ptrCast(@alignCast(handle)));
     if (builtin.os.tag == .windows) windows_d3d12.destroySurface(@ptrCast(@alignCast(handle)));
-}
-pub export fn ZawraGraphics_DestroySurface(handle: ZawraGraphicsHandle) void {
-    ZG_DestroySurface(handle);
 }
 
 pub export fn ZG_SwapBuffers(handle: ZawraGraphicsHandle) void {
@@ -133,75 +94,72 @@ pub export fn ZG_SwapBuffers(handle: ZawraGraphicsHandle) void {
     if (builtin.os.tag == .macos) macos_metal.swapBuffers(@ptrCast(@alignCast(handle)));
     if (builtin.os.tag == .windows) windows_d3d12.swapBuffers(@ptrCast(@alignCast(handle)));
 }
-pub export fn ZawraGraphics_SwapBuffers(handle: ZawraGraphicsHandle) void {
-    ZG_SwapBuffers(handle);
-}
 
-pub export fn ZawraGraphics_ExportSurfaceFD(handle: ?ZawraGraphicsHandle) i32 {
+pub export fn ZG_ExportSurfaceFD(handle: ?ZawraGraphicsHandle) i32 {
     if (handle == null) return -1;
     if (builtin.os.tag == .linux) return linux_vulkan.exportSurfaceFD(@ptrCast(@alignCast(handle.?)));
     return -1;
 }
 
-pub export fn ZawraGraphics_CreateBuffer(handle: ZawraGraphicsHandle, size: usize, buffer_type: BufferType) ?ZawraGraphicsBuffer {
+pub export fn ZG_CreateBuffer(handle: ZawraGraphicsHandle, size: usize, buffer_type: BufferType) ?ZawraGraphicsBuffer {
     if (builtin.os.tag == .linux) return @ptrCast(linux_vulkan.createBuffer(@ptrCast(@alignCast(handle)), size, @intFromEnum(buffer_type)));
     if (builtin.os.tag == .macos) return @ptrCast(macos_metal.createBuffer(@ptrCast(@alignCast(handle)), size, @intFromEnum(buffer_type)));
     if (builtin.os.tag == .windows) return @ptrCast(windows_d3d12.createBuffer(@ptrCast(@alignCast(handle)), size, @intFromEnum(buffer_type)));
     return null;
 }
 
-pub export fn ZawraGraphics_DestroyBuffer(handle: ZawraGraphicsHandle, buffer: ZawraGraphicsBuffer) void {
+pub export fn ZG_DestroyBuffer(handle: ZawraGraphicsHandle, buffer: ZawraGraphicsBuffer) void {
     if (builtin.os.tag == .linux) linux_vulkan.destroyBuffer(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(buffer)));
     if (builtin.os.tag == .macos) macos_metal.destroyBuffer(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(buffer)));
     if (builtin.os.tag == .windows) windows_d3d12.destroyBuffer(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(buffer)));
 }
 
-pub export fn ZawraGraphics_BeginCommandBuffer(handle: ZawraGraphicsHandle) ?ZawraGraphicsCommandBuffer {
+pub export fn ZG_BeginCommandBuffer(handle: ZawraGraphicsHandle) ?ZawraGraphicsCommandBuffer {
     if (builtin.os.tag == .linux) return @ptrCast(linux_vulkan.beginCommandBuffer(@ptrCast(@alignCast(handle))));
     if (builtin.os.tag == .macos) return @ptrCast(macos_metal.beginCommandBuffer(@ptrCast(@alignCast(handle))));
     if (builtin.os.tag == .windows) return @ptrCast(windows_d3d12.beginCommandBuffer(@ptrCast(@alignCast(handle))));
     return null;
 }
 
-pub export fn ZawraGraphics_CmdClearColor(cmd: ZawraGraphicsCommandBuffer, r: f32, g: f32, b: f32, a: f32) void {
+pub export fn ZG_CmdClearColor(cmd: ZawraGraphicsCommandBuffer, r: f32, g: f32, b: f32, a: f32) void {
     if (builtin.os.tag == .linux) linux_vulkan.cmdClearColor(@ptrCast(@alignCast(cmd)), r, g, b, a);
     if (builtin.os.tag == .macos) macos_metal.cmdClearColor(@ptrCast(@alignCast(cmd)), r, g, b, a);
     if (builtin.os.tag == .windows) windows_d3d12.cmdClearColor(@ptrCast(@alignCast(cmd)), r, g, b, a);
 }
 
-pub export fn ZawraGraphics_CmdClearAttachments(cmd: ZawraGraphicsCommandBuffer, color: bool, depth: bool, stencil: bool, r: f32, g: f32, b: f32, a: f32) void {
+pub export fn ZG_CmdClearAttachments(cmd: ZawraGraphicsCommandBuffer, color: bool, depth: bool, stencil: bool, r: f32, g: f32, b: f32, a: f32) void {
     if (builtin.os.tag == .linux) linux_vulkan.cmdClearAttachments(@ptrCast(@alignCast(cmd)), color, depth, stencil, r, g, b, a);
     if (builtin.os.tag == .macos) macos_metal.cmdClearAttachments(@ptrCast(@alignCast(cmd)), color, depth, stencil, r, g, b, a);
     if (builtin.os.tag == .windows) windows_d3d12.cmdClearAttachments(@ptrCast(@alignCast(cmd)), color, depth, stencil, r, g, b, a);
 }
 
-pub export fn ZawraGraphics_SubmitCommandBuffer(handle: ZawraGraphicsHandle, cmd: ZawraGraphicsCommandBuffer) void {
+pub export fn ZG_SubmitCommandBuffer(handle: ZawraGraphicsHandle, cmd: ZawraGraphicsCommandBuffer) void {
     if (builtin.os.tag == .linux) linux_vulkan.submitCommandBuffer(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(cmd)));
     if (builtin.os.tag == .macos) macos_metal.submitCommandBuffer(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(cmd)));
     if (builtin.os.tag == .windows) windows_d3d12.submitCommandBuffer(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(cmd)));
 }
 
-pub export fn ZawraGraphics_CreatePipeline(handle: ZawraGraphicsHandle, desc: *const PipelineDesc) ?ZawraGraphicsPipeline {
+pub export fn ZG_CreatePipeline(handle: ZawraGraphicsHandle, desc: *const PipelineDesc) ?ZawraGraphicsPipeline {
     if (builtin.os.tag == .linux) return @ptrCast(linux_vulkan.createPipeline(@ptrCast(@alignCast(handle)), desc));
     if (builtin.os.tag == .macos) return @ptrCast(macos_metal.createPipeline(@ptrCast(@alignCast(handle)), desc));
     if (builtin.os.tag == .windows) return @ptrCast(windows_d3d12.createPipeline(@ptrCast(@alignCast(handle)), desc));
     return null;
 }
 
-pub export fn ZawraGraphics_DestroyPipeline(handle: ZawraGraphicsHandle, pipeline: ?ZawraGraphicsPipeline) void {
+pub export fn ZG_DestroyPipeline(handle: ZawraGraphicsHandle, pipeline: ?ZawraGraphicsPipeline) void {
     if (pipeline == null) return;
     if (builtin.os.tag == .linux) linux_vulkan.destroyPipeline(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(pipeline.?)));
     if (builtin.os.tag == .macos) macos_metal.destroyPipeline(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(pipeline.?)));
     if (builtin.os.tag == .windows) windows_d3d12.destroyPipeline(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(pipeline.?)));
 }
 
-pub export fn ZawraGraphics_CmdBindPipeline(cmd: ZawraGraphicsCommandBuffer, pipeline: ZawraGraphicsPipeline) void {
+pub export fn ZG_CmdBindPipeline(cmd: ZawraGraphicsCommandBuffer, pipeline: ZawraGraphicsPipeline) void {
     if (builtin.os.tag == .linux) linux_vulkan.cmdBindPipeline(@ptrCast(@alignCast(cmd)), @ptrCast(@alignCast(pipeline)));
     if (builtin.os.tag == .macos) macos_metal.cmdBindPipeline(@ptrCast(@alignCast(cmd)), @ptrCast(@alignCast(pipeline)));
     if (builtin.os.tag == .windows) windows_d3d12.cmdBindPipeline(@ptrCast(@alignCast(cmd)), @ptrCast(@alignCast(pipeline)));
 }
 
-pub export fn ZawraGraphics_CreateWindow(width: u32, height: u32) ?ZawraGraphicsHandle {
+pub export fn ZG_CreateWindow(width: u32, height: u32) ?ZawraGraphicsHandle {
     if (builtin.os.tag == .linux) return @ptrCast(linux_vulkan.createWindow(width, height));
     if (builtin.os.tag == .macos) return @ptrCast(macos_metal.createWindow(width, height));
     if (builtin.os.tag == .windows) return @ptrCast(windows_d3d12.createWindow(width, height));
@@ -224,21 +182,21 @@ pub const ZawraGraphicsTextureDesc = extern struct {
 
 pub const ZawraGraphicsTexture = *anyopaque;
 
-pub export fn ZawraGraphics_CreateTexture(handle: ZawraGraphicsHandle, desc: *const ZawraGraphicsTextureDesc) ?ZawraGraphicsTexture {
+pub export fn ZG_CreateTexture(handle: ZawraGraphicsHandle, desc: *const ZawraGraphicsTextureDesc) ?ZawraGraphicsTexture {
     if (builtin.os.tag == .linux) return @ptrCast(linux_vulkan.createTexture(@ptrCast(@alignCast(handle)), desc));
     if (builtin.os.tag == .macos) return @ptrCast(macos_metal.createTexture(@ptrCast(@alignCast(handle)), desc));
     if (builtin.os.tag == .windows) return @ptrCast(windows_d3d12.createTexture(@ptrCast(@alignCast(handle)), desc));
     return null;
 }
 
-pub export fn ZawraGraphics_DestroyTexture(handle: ZawraGraphicsHandle, texture: ?ZawraGraphicsTexture) void {
+pub export fn ZG_DestroyTexture(handle: ZawraGraphicsHandle, texture: ?ZawraGraphicsTexture) void {
     if (texture == null) return;
     if (builtin.os.tag == .linux) linux_vulkan.destroyTexture(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(texture.?)));
     if (builtin.os.tag == .macos) macos_metal.destroyTexture(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(texture.?)));
     if (builtin.os.tag == .windows) windows_d3d12.destroyTexture(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(texture.?)));
 }
 
-pub export fn ZawraGraphics_SetTextureParams(
+pub export fn ZG_SetTextureParams(
     handle: ZawraGraphicsHandle,
     texture: ZawraGraphicsTexture,
     minFilter: u32,
@@ -273,12 +231,12 @@ pub export fn ZawraGraphics_SetTextureParams(
     return false;
 }
 
-pub export fn ZawraGraphics_UploadTexture(handle: ZawraGraphicsHandle, texture: ZawraGraphicsTexture, data: ?*const anyopaque, dataLen: usize) bool {
+pub export fn ZG_UploadTexture(handle: ZawraGraphicsHandle, texture: ZawraGraphicsTexture, data: ?*const anyopaque, dataLen: usize) bool {
     if (builtin.os.tag == .linux) return linux_vulkan.uploadTexture(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(texture)), data, dataLen);
     return false;
 }
 
-pub export fn ZawraGraphics_UploadTextureRegion(
+pub export fn ZG_UploadTextureRegion(
     surface_ptr: ?*anyopaque,
     texture_ptr: ?*anyopaque,
     x: i32,
@@ -301,13 +259,13 @@ pub export fn ZawraGraphics_UploadTextureRegion(
     return false;
 }
 
-pub export fn ZawraGraphics_ReadbackTexture(handle: ?ZawraGraphicsHandle, texture: ZawraGraphicsTexture, out_buf: ?[*]u8, len: usize) bool {
+pub export fn ZG_ReadbackTexture(handle: ?ZawraGraphicsHandle, texture: ZawraGraphicsTexture, out_buf: ?[*]u8, len: usize) bool {
     if (handle == null) return false;
     if (builtin.os.tag == .linux) return linux_vulkan.readbackTexture(@ptrCast(@alignCast(handle.?)), @ptrCast(@alignCast(texture)), out_buf, len);
     return false;
 }
 
-pub export fn ZawraGraphics_ImportTextureFD(handle: ?ZawraGraphicsHandle, fd: i32, desc: *const ZawraGraphicsTextureDesc) ?ZawraGraphicsTexture {
+pub export fn ZG_ImportTextureFD(handle: ?ZawraGraphicsHandle, fd: i32, desc: *const ZawraGraphicsTextureDesc) ?ZawraGraphicsTexture {
     if (handle == null) return null;
     if (builtin.os.tag == .linux) return @ptrCast(linux_vulkan.importTextureFD(@ptrCast(@alignCast(handle.?)), fd, desc));
     return null;
@@ -318,32 +276,26 @@ pub export fn ZG_CreateSwapchain(handle: ZawraGraphicsHandle) bool {
     if (builtin.os.tag == .linux) return true;
     return false;
 }
-pub export fn ZawraGraphics_CreateSwapchain(handle: ZawraGraphicsHandle) bool {
-    return ZG_CreateSwapchain(handle);
-}
 
 pub export fn ZG_Present(handle: ZawraGraphicsHandle) void {
     if (builtin.os.tag == .linux) linux_vulkan.present(@ptrCast(@alignCast(handle)));
 }
-pub export fn ZawraGraphics_Present(handle: ZawraGraphicsHandle) void {
-    ZG_Present(handle);
-}
 
-pub export fn ZawraGraphics_UploadBuffer(handle: ZawraGraphicsHandle, buffer: ZawraGraphicsBuffer, data: ?*const anyopaque, dataLen: usize) bool {
+pub export fn ZG_UploadBuffer(handle: ZawraGraphicsHandle, buffer: ZawraGraphicsBuffer, data: ?*const anyopaque, dataLen: usize) bool {
     if (builtin.os.tag == .linux) return linux_vulkan.uploadBuffer(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(buffer)), data, dataLen);
     if (builtin.os.tag == .macos) return macos_metal.uploadBuffer(@ptrCast(@alignCast(buffer)), data, dataLen);
     if (builtin.os.tag == .windows) return windows_d3d12.uploadBuffer(@ptrCast(@alignCast(buffer)), data, dataLen);
     return false;
 }
 
-pub export fn ZawraGraphics_GetBufferSize(buffer: ZawraGraphicsBuffer) usize {
+pub export fn ZG_GetBufferSize(buffer: ZawraGraphicsBuffer) usize {
     if (builtin.os.tag == .linux) return linux_vulkan.getBufferSize(@ptrCast(@alignCast(buffer)));
     if (builtin.os.tag == .macos) return macos_metal.getBufferSize(@ptrCast(@alignCast(buffer)));
     if (builtin.os.tag == .windows) return windows_d3d12.getBufferSize(@ptrCast(@alignCast(buffer)));
     return 0;
 }
 
-pub export fn ZawraGraphics_CmdBindVertexBuffer(cmd: ZawraGraphicsCommandBuffer, buffer: ZawraGraphicsBuffer, offset: usize) void {
+pub export fn ZG_CmdBindVertexBuffer(cmd: ZawraGraphicsCommandBuffer, buffer: ZawraGraphicsBuffer, offset: usize) void {
     if (builtin.os.tag == .linux) linux_vulkan.cmdBindVertexBuffer(@ptrCast(@alignCast(cmd)), @ptrCast(@alignCast(buffer)), offset);
     if (builtin.os.tag == .macos) macos_metal.cmdBindVertexBuffer(@ptrCast(@alignCast(cmd)), @ptrCast(@alignCast(buffer)), offset);
     if (builtin.os.tag == .windows) windows_d3d12.cmdBindVertexBuffer(@ptrCast(@alignCast(cmd)), @ptrCast(@alignCast(buffer)), offset);
@@ -354,11 +306,8 @@ pub export fn ZG_BindTexture(cmd: ZawraGraphicsCommandBuffer, texture: ZawraGrap
     if (builtin.os.tag == .macos) macos_metal.cmdBindTexture(@ptrCast(@alignCast(cmd)), @ptrCast(@alignCast(texture)), binding);
     if (builtin.os.tag == .windows) windows_d3d12.cmdBindTexture(@ptrCast(@alignCast(cmd)), @ptrCast(@alignCast(texture)), binding);
 }
-pub export fn ZawraGraphics_BindTexture(cmd: ZawraGraphicsCommandBuffer, texture: ZawraGraphicsTexture, binding: u32) void {
-    ZG_BindTexture(cmd, texture, binding);
-}
 
-pub export fn ZawraGraphics_CmdDraw(cmd: ZawraGraphicsCommandBuffer, vertex_count: u32, instance_count: u32, first_vertex: u32, first_instance: u32) void {
+pub export fn ZG_CmdDraw(cmd: ZawraGraphicsCommandBuffer, vertex_count: u32, instance_count: u32, first_vertex: u32, first_instance: u32) void {
     if (builtin.os.tag == .linux) linux_vulkan.cmdDraw(@ptrCast(@alignCast(cmd)), vertex_count, instance_count, first_vertex, first_instance);
     if (builtin.os.tag == .macos) macos_metal.cmdDraw(@ptrCast(@alignCast(cmd)), vertex_count, instance_count, first_vertex, first_instance);
     if (builtin.os.tag == .windows) windows_d3d12.cmdDraw(@ptrCast(@alignCast(cmd)), vertex_count, instance_count, first_vertex, first_instance);
@@ -369,17 +318,11 @@ pub export fn ZG_CmdCopyTexture(cmd: ZawraGraphicsCommandBuffer, src: ZawraGraph
     if (builtin.os.tag == .macos) macos_metal.cmdCopyTexture(@ptrCast(@alignCast(cmd)), @ptrCast(@alignCast(src)), @ptrCast(@alignCast(dst)));
     if (builtin.os.tag == .windows) windows_d3d12.cmdCopyTexture(@ptrCast(@alignCast(cmd)), @ptrCast(@alignCast(src)), @ptrCast(@alignCast(dst)));
 }
-pub export fn ZawraGraphics_CmdCopyTexture(cmd: ZawraGraphicsCommandBuffer, src: ZawraGraphicsTexture, dst: ZawraGraphicsTexture) void {
-    ZG_CmdCopyTexture(cmd, src, dst);
-}
 
 pub export fn ZG_CmdSetViewport(cmd: ZawraGraphicsCommandBuffer, x: f32, y: f32, width: f32, height: f32, min_depth: f32, max_depth: f32) void {
     if (builtin.os.tag == .linux) linux_vulkan.cmdSetViewport(@ptrCast(@alignCast(cmd)), x, y, width, height, min_depth, max_depth);
     if (builtin.os.tag == .macos) macos_metal.cmdSetViewport(@ptrCast(@alignCast(cmd)), x, y, width, height, min_depth, max_depth);
     if (builtin.os.tag == .windows) windows_d3d12.cmdSetViewport(@ptrCast(@alignCast(cmd)), x, y, width, height, min_depth, max_depth);
-}
-pub export fn ZawraGraphics_CmdSetViewport(cmd: ZawraGraphicsCommandBuffer, x: f32, y: f32, width: f32, height: f32, min_depth: f32, max_depth: f32) void {
-    ZG_CmdSetViewport(cmd, x, y, width, height, min_depth, max_depth);
 }
 
 pub export fn ZG_CmdSetScissor(cmd: ZawraGraphicsCommandBuffer, x: i32, y: i32, width: u32, height: u32) void {
@@ -387,29 +330,26 @@ pub export fn ZG_CmdSetScissor(cmd: ZawraGraphicsCommandBuffer, x: i32, y: i32, 
     if (builtin.os.tag == .macos) macos_metal.cmdSetScissor(@ptrCast(@alignCast(cmd)), x, y, width, height);
     if (builtin.os.tag == .windows) windows_d3d12.cmdSetScissor(@ptrCast(@alignCast(cmd)), x, y, width, height);
 }
-pub export fn ZawraGraphics_CmdSetScissor(cmd: ZawraGraphicsCommandBuffer, x: i32, y: i32, width: u32, height: u32) void {
-    ZG_CmdSetScissor(cmd, x, y, width, height);
-}
 
-pub export fn ZawraGraphics_BeginLayer(cmd: ZawraGraphicsCommandBuffer, layer_id: u32, x: f32, y: f32, width: f32, height: f32, opacity: f32) void {
+pub export fn ZG_BeginLayer(cmd: ZawraGraphicsCommandBuffer, layer_id: u32, x: f32, y: f32, width: f32, height: f32, opacity: f32) void {
     if (builtin.os.tag == .linux) linux_vulkan.beginLayer(@ptrCast(@alignCast(cmd)), layer_id, x, y, width, height, opacity);
     if (builtin.os.tag == .macos) macos_metal.beginLayer(@ptrCast(@alignCast(cmd)), layer_id, x, y, width, height, opacity);
     if (builtin.os.tag == .windows) windows_d3d12.beginLayer(@ptrCast(@alignCast(cmd)), layer_id, x, y, width, height, opacity);
 }
 
-pub export fn ZawraGraphics_EndLayer(cmd: ZawraGraphicsCommandBuffer) void {
+pub export fn ZG_EndLayer(cmd: ZawraGraphicsCommandBuffer) void {
     if (builtin.os.tag == .linux) linux_vulkan.endLayer(@ptrCast(@alignCast(cmd)));
     if (builtin.os.tag == .macos) macos_metal.endLayer(@ptrCast(@alignCast(cmd)));
     if (builtin.os.tag == .windows) windows_d3d12.endLayer(@ptrCast(@alignCast(cmd)));
 }
 
-pub export fn ZawraGraphics_SetLayerOrder(order: [*]const u32, count: u32) void {
+pub export fn ZG_SetLayerOrder(order: [*]const u32, count: u32) void {
     if (builtin.os.tag == .linux) linux_vulkan.setLayerOrder(order, count);
     if (builtin.os.tag == .macos) macos_metal.setLayerOrder(order, count);
     if (builtin.os.tag == .windows) windows_d3d12.setLayerOrder(order, count);
 }
 
-pub export fn ZawraGraphics_CreateShaderModule(handle: ?ZawraGraphicsHandle, spirv: ?[*]const u8, spirv_len: usize) ?ZawraGraphicsShaderModule {
+pub export fn ZG_CreateShaderModule(handle: ?ZawraGraphicsHandle, spirv: ?[*]const u8, spirv_len: usize) ?ZawraGraphicsShaderModule {
     if (handle == null or spirv == null) return null;
     if (builtin.os.tag == .linux) return @ptrCast(linux_vulkan.createShaderModulePublic(@ptrCast(@alignCast(handle.?)), spirv.?, spirv_len));
     if (builtin.os.tag == .macos) return @ptrCast(macos_metal.createShaderModulePublic(@ptrCast(@alignCast(handle.?)), spirv.?, spirv_len));
@@ -417,14 +357,14 @@ pub export fn ZawraGraphics_CreateShaderModule(handle: ?ZawraGraphicsHandle, spi
     return null;
 }
 
-pub export fn ZawraGraphics_DestroyShaderModule(handle: ?ZawraGraphicsHandle, module: ?ZawraGraphicsShaderModule) void {
+pub export fn ZG_DestroyShaderModule(handle: ?ZawraGraphicsHandle, module: ?ZawraGraphicsShaderModule) void {
     if (handle == null or module == null) return;
     if (builtin.os.tag == .linux) linux_vulkan.destroyShaderModulePublic(@ptrCast(@alignCast(handle.?)), @ptrCast(@alignCast(module.?)));
     if (builtin.os.tag == .macos) macos_metal.destroyShaderModulePublic(@ptrCast(@alignCast(handle.?)), @ptrCast(@alignCast(module.?)));
     if (builtin.os.tag == .windows) windows_d3d12.destroyShaderModulePublic(@ptrCast(@alignCast(handle.?)), @ptrCast(@alignCast(module.?)));
 }
 
-pub export fn ZawraGraphics_CreatePipelineFromShaders(handle: ?ZawraGraphicsHandle, vert: ?ZawraGraphicsShaderModule, frag: ?ZawraGraphicsShaderModule) ?ZawraGraphicsPipeline {
+pub export fn ZG_CreatePipelineFromShaders(handle: ?ZawraGraphicsHandle, vert: ?ZawraGraphicsShaderModule, frag: ?ZawraGraphicsShaderModule) ?ZawraGraphicsPipeline {
     if (handle == null or vert == null or frag == null) return null;
 
     if (builtin.os.tag == .linux) return @ptrCast(linux_vulkan.createPipelineFromShadersPublic(@ptrCast(@alignCast(handle.?)), @ptrCast(@alignCast(vert.?)), @ptrCast(@alignCast(frag.?)), null));
@@ -433,7 +373,7 @@ pub export fn ZawraGraphics_CreatePipelineFromShaders(handle: ?ZawraGraphicsHand
     return null;
 }
 
-pub export fn ZawraGraphics_CreateUniformBuffer(surface: ?ZawraGraphicsHandle, size: usize) ?ZawraGraphicsBuffer {
+pub export fn ZG_CreateUniformBuffer(surface: ?ZawraGraphicsHandle, size: usize) ?ZawraGraphicsBuffer {
     if (surface == null) return null;
     if (builtin.os.tag == .linux) return @ptrCast(linux_vulkan.createUniformBuffer(@ptrCast(@alignCast(surface.?)), size));
     if (builtin.os.tag == .macos) return @ptrCast(macos_metal.createUniformBuffer(@ptrCast(@alignCast(surface.?)), size));
@@ -441,7 +381,7 @@ pub export fn ZawraGraphics_CreateUniformBuffer(surface: ?ZawraGraphicsHandle, s
     return null;
 }
 
-pub export fn ZawraGraphics_UploadUniformBuffer(surface: ?ZawraGraphicsHandle, buffer: ?ZawraGraphicsBuffer, data: ?[*]const u8, len: usize) bool {
+pub export fn ZG_UploadUniformBuffer(surface: ?ZawraGraphicsHandle, buffer: ?ZawraGraphicsBuffer, data: ?[*]const u8, len: usize) bool {
     if (surface == null or buffer == null) return false;
     if (builtin.os.tag == .linux) return linux_vulkan.uploadUniformBuffer(@ptrCast(@alignCast(surface.?)), @ptrCast(@alignCast(buffer.?)), data, len);
     if (builtin.os.tag == .macos) return macos_metal.uploadUniformBuffer(@ptrCast(@alignCast(surface.?)), @ptrCast(@alignCast(buffer.?)), data, len);
@@ -449,14 +389,14 @@ pub export fn ZawraGraphics_UploadUniformBuffer(surface: ?ZawraGraphicsHandle, b
     return false;
 }
 
-pub export fn ZawraGraphics_BindUniformBuffer(cmd: ?ZawraGraphicsCommandBuffer, buffer: ?ZawraGraphicsBuffer, binding: u32, offset: u64) void {
+pub export fn ZG_BindUniformBuffer(cmd: ?ZawraGraphicsCommandBuffer, buffer: ?ZawraGraphicsBuffer, binding: u32, offset: u64) void {
     if (cmd == null or buffer == null) return;
     if (builtin.os.tag == .linux) linux_vulkan.cmdBindUniformBuffer(@ptrCast(@alignCast(cmd.?)), @ptrCast(@alignCast(buffer.?)), binding, offset);
     if (builtin.os.tag == .macos) macos_metal.cmdBindUniformBuffer(@ptrCast(@alignCast(cmd.?)), @ptrCast(@alignCast(buffer.?)), binding, offset);
     if (builtin.os.tag == .windows) windows_d3d12.cmdBindUniformBuffer(@ptrCast(@alignCast(cmd.?)), @ptrCast(@alignCast(buffer.?)), binding, offset);
 }
 
-pub export fn ZawraGraphics_SetVSync(handle: ZawraGraphicsHandle, enabled: bool) void {
+pub export fn ZG_SetVSync(handle: ZawraGraphicsHandle, enabled: bool) void {
     if (builtin.os.tag == .linux) {
         const surface: *linux_vulkan.VulkanSurface = @ptrCast(@alignCast(handle));
         if (enabled) {
@@ -466,17 +406,15 @@ pub export fn ZawraGraphics_SetVSync(handle: ZawraGraphicsHandle, enabled: bool)
         }
     }
 }
-pub const ZG_SetVSync = ZawraGraphics_SetVSync;
 
-pub export fn ZawraGraphics_RecreateSwapchain(handle: ZawraGraphicsHandle, width: u32, height: u32) void {
+pub export fn ZG_RecreateSwapchain(handle: ZawraGraphicsHandle, width: u32, height: u32) void {
     if (builtin.os.tag == .linux) {
         const surface: *linux_vulkan.VulkanSurface = @ptrCast(@alignCast(handle));
         linux_vulkan.recreateSwapchain(surface, width, height);
     }
 }
-pub const ZG_RecreateSwapchain = ZawraGraphics_RecreateSwapchain;
 
-pub export fn ZawraGraphics_SetMSAA(handle: ZawraGraphicsHandle, samples: u32) void {
+pub export fn ZG_SetMSAA(handle: ZawraGraphicsHandle, samples: u32) void {
     if (builtin.os.tag == .linux) {
         const surface: *linux_vulkan.VulkanSurface = @ptrCast(@alignCast(handle));
         const clamped: u32 = switch (samples) {
@@ -488,9 +426,8 @@ pub export fn ZawraGraphics_SetMSAA(handle: ZawraGraphicsHandle, samples: u32) v
         surface.msaa_samples = clamped;
     }
 }
-pub const ZG_SetMSAA = ZawraGraphics_SetMSAA;
 
-pub export fn ZawraGraphics_CmdBindVertexBuffers(
+pub export fn ZG_CmdBindVertexBuffers(
     cmd: ZawraGraphicsCommandBuffer,
     first_binding: u32,
     buffers: [*]const ZawraGraphicsBuffer,
@@ -504,7 +441,7 @@ pub export fn ZawraGraphics_CmdBindVertexBuffers(
     }
 }
 
-pub export fn ZawraGraphics_CmdDrawInstanced(
+pub export fn ZG_CmdDrawInstanced(
     cmd: ZawraGraphicsCommandBuffer,
     vertex_count: u32,
     instance_count: u32,
@@ -516,7 +453,7 @@ pub export fn ZawraGraphics_CmdDrawInstanced(
     if (builtin.os.tag == .windows) windows_d3d12.cmdDraw(@ptrCast(@alignCast(cmd)), vertex_count, instance_count, first_vertex, first_instance);
 }
 
-pub export fn ZawraGraphics_CreatePipelineWithLayout(
+pub export fn ZG_CreatePipelineWithLayout(
     handle: ?ZawraGraphicsHandle,
     vert: ?ZawraGraphicsShaderModule,
     frag: ?ZawraGraphicsShaderModule,
@@ -541,7 +478,7 @@ pub export fn ZawraGraphics_CreatePipelineWithLayout(
     return null;
 }
 
-pub export fn ZawraGraphics_CreateComputePipeline(
+pub export fn ZG_CreateComputePipeline(
     surface_handle: ?ZawraGraphicsHandle,
     comp_module: ?ZawraGraphicsShaderModule,
     storage_bindings: ?[*]const ZawraGraphicsStorageBinding,
@@ -562,7 +499,7 @@ pub export fn ZawraGraphics_CreateComputePipeline(
     return null;
 }
 
-pub export fn ZawraGraphics_DestroyComputePipeline(
+pub export fn ZG_DestroyComputePipeline(
     surface_handle: ?ZawraGraphicsHandle,
     pipeline: ?ZawraGraphicsComputePipeline,
 ) void {
@@ -573,7 +510,7 @@ pub export fn ZawraGraphics_DestroyComputePipeline(
     );
 }
 
-pub export fn ZawraGraphics_BindComputePipeline(
+pub export fn ZG_BindComputePipeline(
     cmd_handle: ?ZawraGraphicsCommandBuffer,
     pipeline: ?ZawraGraphicsComputePipeline,
 ) void {
@@ -584,7 +521,7 @@ pub export fn ZawraGraphics_BindComputePipeline(
     );
 }
 
-pub export fn ZawraGraphics_CmdDispatch(
+pub export fn ZG_CmdDispatch(
     cmd_handle: ?ZawraGraphicsCommandBuffer,
     x: u32,
     y: u32,
@@ -599,7 +536,7 @@ pub export fn ZawraGraphics_CmdDispatch(
     );
 }
 
-pub export fn ZawraGraphics_CreateStorageBuffer(
+pub export fn ZG_CreateStorageBuffer(
     surface_handle: ?ZawraGraphicsHandle,
     size: u32,
 ) ?ZawraGraphicsBuffer {
@@ -611,7 +548,7 @@ pub export fn ZawraGraphics_CreateStorageBuffer(
     return null;
 }
 
-pub export fn ZawraGraphics_BindStorageBuffer(
+pub export fn ZG_BindStorageBuffer(
     cmd_handle: ?ZawraGraphicsCommandBuffer,
     pipeline: ?ZawraGraphicsComputePipeline,
     buffer: ?ZawraGraphicsBuffer,
@@ -626,7 +563,7 @@ pub export fn ZawraGraphics_BindStorageBuffer(
     );
 }
 
-pub export fn ZawraGraphics_CreateTimerQuery(surface_handle: ?ZawraGraphicsHandle) ?*anyopaque {
+pub export fn ZG_CreateTimerQuery(surface_handle: ?ZawraGraphicsHandle) ?*anyopaque {
     if (surface_handle == null) return null;
     if (builtin.os.tag == .linux) {
         const query = linux_vulkan.createTimerQuery(@ptrCast(@alignCast(surface_handle.?))) orelse return null;
@@ -635,7 +572,7 @@ pub export fn ZawraGraphics_CreateTimerQuery(surface_handle: ?ZawraGraphicsHandl
     return null;
 }
 
-pub export fn ZawraGraphics_DestroyTimerQuery(surface_handle: ?ZawraGraphicsHandle, query: ?*anyopaque) void {
+pub export fn ZG_DestroyTimerQuery(surface_handle: ?ZawraGraphicsHandle, query: ?*anyopaque) void {
     if (surface_handle == null or query == null) return;
     if (builtin.os.tag == .linux) linux_vulkan.destroyTimerQuery(
         @ptrCast(@alignCast(surface_handle.?)),
@@ -643,7 +580,7 @@ pub export fn ZawraGraphics_DestroyTimerQuery(surface_handle: ?ZawraGraphicsHand
     );
 }
 
-pub export fn ZawraGraphics_CmdWriteTimestampBegin(cmd: ZawraGraphicsCommandBuffer, query: ?*anyopaque) void {
+pub export fn ZG_CmdWriteTimestampBegin(cmd: ZawraGraphicsCommandBuffer, query: ?*anyopaque) void {
     if (query == null) return;
     if (builtin.os.tag == .linux) {
         const c_cmd: *linux_vulkan.VulkanCommandBuffer = @ptrCast(@alignCast(cmd));
@@ -652,7 +589,7 @@ pub export fn ZawraGraphics_CmdWriteTimestampBegin(cmd: ZawraGraphicsCommandBuff
     }
 }
 
-pub export fn ZawraGraphics_CmdWriteTimestampEnd(cmd: ZawraGraphicsCommandBuffer, query: ?*anyopaque) void {
+pub export fn ZG_CmdWriteTimestampEnd(cmd: ZawraGraphicsCommandBuffer, query: ?*anyopaque) void {
     if (query == null) return;
     if (builtin.os.tag == .linux) {
         const c_cmd: *linux_vulkan.VulkanCommandBuffer = @ptrCast(@alignCast(cmd));
@@ -661,7 +598,7 @@ pub export fn ZawraGraphics_CmdWriteTimestampEnd(cmd: ZawraGraphicsCommandBuffer
     }
 }
 
-pub export fn ZawraGraphics_GetTimerQueryNs(surface_handle: ?ZawraGraphicsHandle, query: ?*anyopaque) f64 {
+pub export fn ZG_GetTimerQueryNs(surface_handle: ?ZawraGraphicsHandle, query: ?*anyopaque) f64 {
     if (surface_handle == null or query == null) return -1.0;
     if (builtin.os.tag == .linux) {
         const result = linux_vulkan.getTimerQueryResults(
@@ -676,7 +613,7 @@ pub export fn ZawraGraphics_GetTimerQueryNs(surface_handle: ?ZawraGraphicsHandle
 pub const ZawraGraphicsMRTSurface = *anyopaque;
 pub const ZawraGraphicsStencilSurface = *anyopaque;
 
-pub export fn ZawraGraphics_CreateMRTSurface(handle: ZawraGraphicsHandle, width: u32, height: u32, attachment_count: u32) ?ZawraGraphicsMRTSurface {
+pub export fn ZG_CreateMRTSurface(handle: ZawraGraphicsHandle, width: u32, height: u32, attachment_count: u32) ?ZawraGraphicsMRTSurface {
     if (builtin.os.tag == .linux) {
         const result = linux_vulkan.createMRTSurface(@ptrCast(@alignCast(handle)), width, height, attachment_count);
         if (result) |r| return @ptrCast(r);
@@ -684,12 +621,12 @@ pub export fn ZawraGraphics_CreateMRTSurface(handle: ZawraGraphicsHandle, width:
     return null;
 }
 
-pub export fn ZawraGraphics_DestroyMRTSurface(mrt_handle: ?ZawraGraphicsMRTSurface) void {
+pub export fn ZG_DestroyMRTSurface(mrt_handle: ?ZawraGraphicsMRTSurface) void {
     if (mrt_handle == null) return;
     if (builtin.os.tag == .linux) linux_vulkan.destroyMRTSurface(@ptrCast(@alignCast(mrt_handle.?)));
 }
 
-pub export fn ZawraGraphics_BeginMRTCommandBuffer(handle: ZawraGraphicsHandle, mrt_handle: ZawraGraphicsMRTSurface) ?ZawraGraphicsCommandBuffer {
+pub export fn ZG_BeginMRTCommandBuffer(handle: ZawraGraphicsHandle, mrt_handle: ZawraGraphicsMRTSurface) ?ZawraGraphicsCommandBuffer {
     _ = handle;
     if (builtin.os.tag == .linux) {
         const mrt: *linux_vulkan.MRTSurface = @ptrCast(@alignCast(mrt_handle));
@@ -699,14 +636,14 @@ pub export fn ZawraGraphics_BeginMRTCommandBuffer(handle: ZawraGraphicsHandle, m
     return null;
 }
 
-pub export fn ZawraGraphics_EndMRTSurface(mrt_handle: ZawraGraphicsMRTSurface) void {
+pub export fn ZG_EndMRTSurface(mrt_handle: ZawraGraphicsMRTSurface) void {
     if (builtin.os.tag == .linux) {
         const mrt: *linux_vulkan.MRTSurface = @ptrCast(@alignCast(mrt_handle));
         linux_vulkan.endMRTSurface(mrt);
     }
 }
 
-pub export fn ZawraGraphics_ReadMRTTexture(mrt_handle: ZawraGraphicsMRTSurface, index: u32, out_buf: ?[*]u8, len: usize) bool {
+pub export fn ZG_ReadMRTTexture(mrt_handle: ZawraGraphicsMRTSurface, index: u32, out_buf: ?[*]u8, len: usize) bool {
     if (builtin.os.tag == .linux) {
         const mrt: *linux_vulkan.MRTSurface = @ptrCast(@alignCast(mrt_handle));
         return linux_vulkan.readMRTTexture(mrt, index, out_buf, len);
@@ -714,7 +651,7 @@ pub export fn ZawraGraphics_ReadMRTTexture(mrt_handle: ZawraGraphicsMRTSurface, 
     return false;
 }
 
-pub export fn ZawraGraphics_CreateStencilSurface(handle: ZawraGraphicsHandle, width: u32, height: u32) ?ZawraGraphicsStencilSurface {
+pub export fn ZG_CreateStencilSurface(handle: ZawraGraphicsHandle, width: u32, height: u32) ?ZawraGraphicsStencilSurface {
     if (builtin.os.tag == .linux) {
         const result = linux_vulkan.createStencilSurface(@ptrCast(@alignCast(handle)), width, height);
         if (result) |r| return @ptrCast(r);
@@ -722,12 +659,12 @@ pub export fn ZawraGraphics_CreateStencilSurface(handle: ZawraGraphicsHandle, wi
     return null;
 }
 
-pub export fn ZawraGraphics_DestroyStencilSurface(stencil_handle: ?ZawraGraphicsStencilSurface) void {
+pub export fn ZG_DestroyStencilSurface(stencil_handle: ?ZawraGraphicsStencilSurface) void {
     if (stencil_handle == null) return;
     if (builtin.os.tag == .linux) linux_vulkan.destroyStencilSurface(@ptrCast(@alignCast(stencil_handle.?)));
 }
 
-pub export fn ZawraGraphics_BeginStencilCommandBuffer(stencil_handle: ZawraGraphicsStencilSurface) ?ZawraGraphicsCommandBuffer {
+pub export fn ZG_BeginStencilCommandBuffer(stencil_handle: ZawraGraphicsStencilSurface) ?ZawraGraphicsCommandBuffer {
     if (builtin.os.tag == .linux) {
         const stencil: *linux_vulkan.StencilSurface = @ptrCast(@alignCast(stencil_handle));
         const result = linux_vulkan.beginStencilCommandBuffer(stencil);
@@ -736,14 +673,14 @@ pub export fn ZawraGraphics_BeginStencilCommandBuffer(stencil_handle: ZawraGraph
     return null;
 }
 
-pub export fn ZawraGraphics_EndStencilSurface(stencil_handle: ZawraGraphicsStencilSurface) void {
+pub export fn ZG_EndStencilSurface(stencil_handle: ZawraGraphicsStencilSurface) void {
     if (builtin.os.tag == .linux) {
         const stencil: *linux_vulkan.StencilSurface = @ptrCast(@alignCast(stencil_handle));
         linux_vulkan.endStencilSurface(stencil);
     }
 }
 
-pub export fn ZawraGraphics_ReadStencilColorTexture(stencil_handle: ZawraGraphicsStencilSurface, out_buf: ?[*]u8, len: usize) bool {
+pub export fn ZG_ReadStencilColorTexture(stencil_handle: ZawraGraphicsStencilSurface, out_buf: ?[*]u8, len: usize) bool {
     if (builtin.os.tag == .linux) {
         const stencil: *linux_vulkan.StencilSurface = @ptrCast(@alignCast(stencil_handle));
         return linux_vulkan.readStencilColorTexture(stencil, out_buf, len);
@@ -751,13 +688,13 @@ pub export fn ZawraGraphics_ReadStencilColorTexture(stencil_handle: ZawraGraphic
     return false;
 }
 
-pub export fn ZawraGraphics_CreateStencilPipeline(handle: ?ZawraGraphicsHandle, desc: *const PipelineDesc) ?ZawraGraphicsPipeline {
+pub export fn ZG_CreateStencilPipeline(handle: ?ZawraGraphicsHandle, desc: *const PipelineDesc) ?ZawraGraphicsPipeline {
     if (handle == null) return null;
     if (builtin.os.tag == .linux) return @ptrCast(linux_vulkan.createStencilPipeline(@ptrCast(@alignCast(handle.?)), desc));
     return null;
 }
 
-pub export fn ZawraGraphics_CmdSetStencilMask(cmd: ZawraGraphicsCommandBuffer, compare_op: u32, reference: u32, compare_mask: u32, write_mask: u32, fail_op: u32, depth_fail_op: u32, pass_op: u32) void {
+pub export fn ZG_CmdSetStencilMask(cmd: ZawraGraphicsCommandBuffer, compare_op: u32, reference: u32, compare_mask: u32, write_mask: u32, fail_op: u32, depth_fail_op: u32, pass_op: u32) void {
     _ = compare_op;
     _ = compare_mask;
     _ = write_mask;
@@ -770,7 +707,7 @@ pub export fn ZawraGraphics_CmdSetStencilMask(cmd: ZawraGraphicsCommandBuffer, c
     }
 }
 
-pub export fn ZawraGraphics_BindStencilWritePipeline(stencil_handle: ZawraGraphicsStencilSurface, cmd: ZawraGraphicsCommandBuffer) void {
+pub export fn ZG_BindStencilWritePipeline(stencil_handle: ZawraGraphicsStencilSurface, cmd: ZawraGraphicsCommandBuffer) void {
     if (builtin.os.tag == .linux) {
         const stencil: *linux_vulkan.StencilSurface = @ptrCast(@alignCast(stencil_handle));
         const c_cmd: *linux_vulkan.VulkanCommandBuffer = @ptrCast(@alignCast(cmd));
@@ -778,7 +715,7 @@ pub export fn ZawraGraphics_BindStencilWritePipeline(stencil_handle: ZawraGraphi
     }
 }
 
-pub export fn ZawraGraphics_BindStencilTestPipeline(stencil_handle: ZawraGraphicsStencilSurface, cmd: ZawraGraphicsCommandBuffer) void {
+pub export fn ZG_BindStencilTestPipeline(stencil_handle: ZawraGraphicsStencilSurface, cmd: ZawraGraphicsCommandBuffer) void {
     if (builtin.os.tag == .linux) {
         const stencil: *linux_vulkan.StencilSurface = @ptrCast(@alignCast(stencil_handle));
         const c_cmd: *linux_vulkan.VulkanCommandBuffer = @ptrCast(@alignCast(cmd));
@@ -786,7 +723,7 @@ pub export fn ZawraGraphics_BindStencilTestPipeline(stencil_handle: ZawraGraphic
     }
 }
 
-pub export fn ZawraGraphics_GetDeviceProperty(handle: ZawraGraphicsHandle, name: u32) u32 {
+pub export fn ZG_GetDeviceProperty(handle: ZawraGraphicsHandle, name: u32) u32 {
     if (builtin.os.tag == .linux) return linux_vulkan.getDeviceProperty(@ptrCast(@alignCast(handle)), name);
     if (builtin.os.tag == .macos) return macos_metal.getDeviceProperty(@ptrCast(@alignCast(handle)), name);
     if (builtin.os.tag == .windows) return windows_d3d12.getDeviceProperty(@ptrCast(@alignCast(handle)), name);
@@ -796,7 +733,7 @@ pub export fn ZawraGraphics_GetDeviceProperty(handle: ZawraGraphicsHandle, name:
 pub const ZawraGraphicsRenderbuffer = *anyopaque;
 pub const ZawraGraphicsFramebuffer = *anyopaque;
 
-pub export fn ZawraGraphics_CreateRenderbuffer(handle: ZawraGraphicsHandle, format: u32, width: u32, height: u32) ?ZawraGraphicsRenderbuffer {
+pub export fn ZG_CreateRenderbuffer(handle: ZawraGraphicsHandle, format: u32, width: u32, height: u32) ?ZawraGraphicsRenderbuffer {
     if (builtin.os.tag == .linux) {
         const result = linux_vulkan.createRenderbuffer(@ptrCast(@alignCast(handle)), format, width, height);
         if (result) |r| return @ptrCast(r);
@@ -804,12 +741,12 @@ pub export fn ZawraGraphics_CreateRenderbuffer(handle: ZawraGraphicsHandle, form
     return null;
 }
 
-pub export fn ZawraGraphics_DestroyRenderbuffer(handle: ZawraGraphicsHandle, renderbuffer: ?ZawraGraphicsRenderbuffer) void {
+pub export fn ZG_DestroyRenderbuffer(handle: ZawraGraphicsHandle, renderbuffer: ?ZawraGraphicsRenderbuffer) void {
     if (renderbuffer == null) return;
     if (builtin.os.tag == .linux) linux_vulkan.destroyRenderbuffer(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(renderbuffer.?)));
 }
 
-pub export fn ZawraGraphics_CreateFramebuffer(
+pub export fn ZG_CreateFramebuffer(
     handle: ZawraGraphicsHandle,
     color_texture: ?ZawraGraphicsTexture,
     width: u32,
@@ -829,12 +766,12 @@ pub export fn ZawraGraphics_CreateFramebuffer(
     return null;
 }
 
-pub export fn ZawraGraphics_DestroyFramebuffer(handle: ZawraGraphicsHandle, framebuffer: ?ZawraGraphicsFramebuffer) void {
+pub export fn ZG_DestroyFramebuffer(handle: ZawraGraphicsHandle, framebuffer: ?ZawraGraphicsFramebuffer) void {
     if (framebuffer == null) return;
     if (builtin.os.tag == .linux) linux_vulkan.destroyFramebuffer(@ptrCast(@alignCast(handle)), @ptrCast(@alignCast(framebuffer.?)));
 }
 
-pub export fn ZawraGraphics_CmdBindFramebuffer(handle: ZawraGraphicsHandle, cmd: ZawraGraphicsCommandBuffer, framebuffer: ZawraGraphicsFramebuffer) void {
+pub export fn ZG_CmdBindFramebuffer(handle: ZawraGraphicsHandle, cmd: ZawraGraphicsCommandBuffer, framebuffer: ZawraGraphicsFramebuffer) void {
     if (builtin.os.tag == .linux) {
         linux_vulkan.cmdBindFramebuffer(
             @ptrCast(@alignCast(handle)),
@@ -844,7 +781,7 @@ pub export fn ZawraGraphics_CmdBindFramebuffer(handle: ZawraGraphicsHandle, cmd:
     }
 }
 
-pub export fn ZawraGraphics_FramebufferAttachTexture(
+pub export fn ZG_FramebufferAttachTexture(
     handle: ZawraGraphicsHandle,
     framebuffer: ZawraGraphicsFramebuffer,
     attachment: u32,
@@ -863,7 +800,7 @@ pub export fn ZawraGraphics_FramebufferAttachTexture(
     return false;
 }
 
-pub export fn ZawraGraphics_FramebufferAttachRenderbuffer(
+pub export fn ZG_FramebufferAttachRenderbuffer(
     handle: ZawraGraphicsHandle,
     framebuffer: ZawraGraphicsFramebuffer,
     attachment: u32,

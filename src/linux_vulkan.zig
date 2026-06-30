@@ -1565,7 +1565,6 @@ pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*VulkanSurfa
         var surface: c.VkSurfaceKHR = null;
         var x_display: ?*Display = null;
         if (window) |w| {
-            external_memory_enabled = false; // Disable offscreen export if we have a window to render to
             const state = @as(*X11WindowState, @ptrCast(@alignCast(w)));
             const x_window: usize = state.window;
             x_display = state.display;
@@ -1675,7 +1674,7 @@ pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*VulkanSurfa
 
         var render_pass_format: c.VkFormat = c.VK_FORMAT_R8G8B8A8_UNORM;
         var render_pass_final_layout: u32 = c.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        if (!external_memory_enabled and window != null) {
+        if (window != null) {
             var format_count_pre: u32 = 0;
             _ = c.vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, &format_count_pre, null);
             var surface_formats_pre: [16]c.VkSurfaceFormatKHR = undefined;
@@ -1918,7 +1917,7 @@ pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*VulkanSurfa
         }
 
         var swapchain: c.VkSwapchainKHR = null;
-        if (!external_memory_enabled and window != null) {
+        if (window != null) {
             var surface_caps: c.VkSurfaceCapabilitiesKHR = undefined;
             _ = c.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface, &surface_caps);
 
@@ -2157,7 +2156,7 @@ pub fn swapBuffers(surface: *VulkanSurface) void {
             .pSwapchains = @as([*]const c.VkSwapchainKHR, @ptrCast(&surface.swapchain)),
             .pImageIndices = @as([*]const u32, @ptrCast(&surface.image_index)),
         });
-        if (!surface.external_memory_enabled) {
+        if (surface.swapchain != null) {
             present_info.waitSemaphoreCount = 1;
             present_info.pWaitSemaphores = @as(?*const anyopaque, @ptrCast(&wait_semaphore));
         }
@@ -2548,7 +2547,7 @@ pub fn beginCommandBuffer(surface: *VulkanSurface) ?*VulkanCommandBuffer {
 
     _ = c.vkResetCommandPool(surface.device, surface.render_pool, 0);
 
-    if (!surface.external_memory_enabled and surface.swapchain != null) {
+    if (surface.swapchain != null) {
         var acquire_result = c.vkAcquireNextImageKHR(surface.device, surface.swapchain, std.math.maxInt(u64), surface.image_available_semaphore, null, &surface.image_index);
         if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] vkAcquireNextImageKHR result={} image_index={}\n", .{ acquire_result, surface.image_index });
         if (acquire_result == 1000001003 or acquire_result == -1000001000) { // VK_SUBOPTIMAL_KHR or VK_ERROR_OUT_OF_DATE_KHR
@@ -2581,7 +2580,7 @@ pub fn cmdClearColor(cmd: *VulkanCommandBuffer, r: f32, g: f32, b: f32, a: f32) 
     const surface = cmd.surface;
 
     var fb = surface.framebuffer;
-    if (!surface.external_memory_enabled and surface.swapchain != null) {
+    if (surface.swapchain != null) {
         fb = surface.swapchain_framebuffers[surface.image_index];
     }
 
@@ -2626,7 +2625,7 @@ pub fn cmdClearAttachments(cmd: *VulkanCommandBuffer, color: bool, depth: bool, 
     const surface = cmd.surface;
     if (!cmd.render_pass_began) {
         var fb = surface.framebuffer;
-        if (!surface.external_memory_enabled and surface.swapchain != null) {
+        if (surface.swapchain != null) {
             fb = surface.swapchain_framebuffers[surface.image_index];
         }
         if (surface.msaa_samples > 1) {
@@ -2734,7 +2733,7 @@ pub fn submitCommandBuffer(surface: *VulkanSurface, cmd: *VulkanCommandBuffer) v
     const wait_stage: u32 = c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     var wait_semaphore = surface.image_available_semaphore;
     var signal_semaphore = surface.render_finished_semaphore;
-    if (!surface.external_memory_enabled and surface.swapchain != null) {
+    if (surface.swapchain != null) {
         submit_info.waitSemaphoreCount = 1;
         submit_info.pWaitSemaphores = @as(?*const anyopaque, @ptrCast(&wait_semaphore));
         submit_info.pWaitDstStageMask = @as(*const u32, &wait_stage);
