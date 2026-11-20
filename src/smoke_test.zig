@@ -98,6 +98,7 @@ fn runImageTests(surface: zgraphics.ZawraGraphicsHandle) void {
     std.debug.print("Image render loop: {d} frames\n", .{frame_count});
 
     testImportTextureFD(surface);
+    testExportSurfaceDMABuf(surface);
     testReadbackTexture(surface);
     testMultiLayerCompositing(surface);
     testYUVFormatSupport(surface);
@@ -154,6 +155,89 @@ fn testImportTextureFD(surface: zgraphics.ZawraGraphicsHandle) void {
         zgraphics.ZG_DestroyTexture(surface, tex);
     } else {
         std.debug.print("testImportTextureFD: FAIL - importTextureFD returned null for valid fd={d}\n", .{fd});
+    }
+}
+
+fn testExportSurfaceDMABuf(surface: zgraphics.ZawraGraphicsHandle) void {
+    std.debug.print("\n=== testExportSurfaceDMABuf ===\n", .{});
+
+    // 1. Edge case: null surface should return false
+    std.debug.print("testExportSurfaceDMABuf: testing with null surface (expect false)...\n", .{});
+    var null_info: zgraphics.ZawraGraphicsDMABufInfo = undefined;
+    if (zgraphics.ZG_ExportSurfaceDMABuf(null, &null_info)) {
+        std.debug.print("testExportSurfaceDMABuf: FAIL - expected false for null surface\n", .{});
+    } else {
+        std.debug.print("testExportSurfaceDMABuf: PASS - correctly returned false for null surface\n", .{});
+    }
+
+    // 2. Windowed/main surface export
+    std.debug.print("testExportSurfaceDMABuf: testing surface export...\n", .{});
+    var win_info: zgraphics.ZawraGraphicsDMABufInfo = undefined;
+    if (zgraphics.ZG_ExportSurfaceDMABuf(surface, &win_info)) {
+        std.debug.print("testExportSurfaceDMABuf: PASS - exported surface dma-buf: fd={d} {}x{} stride={d} offset={d} drm_format=0x{x} modifier=0x{x}\n", .{
+            win_info.fd, win_info.width, win_info.height, win_info.stride, win_info.offset, win_info.drm_format, win_info.drm_modifier,
+        });
+        if (win_info.fd >= 0) {
+            _ = std.os.linux.close(win_info.fd);
+        }
+    } else {
+        std.debug.print("testExportSurfaceDMABuf: WARNING - exportSurfaceDMABuf returned false for main surface\n", .{});
+    }
+
+    // 3. Offscreen headless surface export (WebKit 2.54+ / WPEPlatform Wayland integration)
+    std.debug.print("testExportSurfaceDMABuf: testing dedicated offscreen surface export (window=null)...\n", .{});
+    const offscreen = zgraphics.ZG_CreateSurface(null, 320, 240);
+    if (offscreen) |off| {
+        defer zgraphics.ZG_DestroySurface(off);
+
+        // Render to offscreen surface to test VkFence synchronization
+        if (zgraphics.ZG_BeginCommandBuffer(off)) |cmd| {
+            zgraphics.ZG_CmdClearColor(cmd, 0.1, 0.5, 0.9, 1.0);
+            zgraphics.ZG_SubmitCommandBuffer(off, cmd);
+        }
+
+        var offscreen_info: zgraphics.ZawraGraphicsDMABufInfo = undefined;
+        if (zgraphics.ZG_ExportSurfaceDMABuf(off, &offscreen_info)) {
+            std.debug.print("testExportSurfaceDMABuf: PASS - exported offscreen dma-buf: fd={d} {}x{} stride={d} offset={d} drm_format=0x{x} modifier=0x{x}\n", .{
+                offscreen_info.fd, offscreen_info.width, offscreen_info.height, offscreen_info.stride, offscreen_info.offset, offscreen_info.drm_format, offscreen_info.drm_modifier,
+            });
+
+            // Verify metadata:
+            // DRM FourCC byte order:
+            // VK_FORMAT_R8G8B8A8_UNORM -> DRM_FORMAT_ABGR8888 (0x34324241)
+            // VK_FORMAT_B8G8R8A8_UNORM -> DRM_FORMAT_ARGB8888 (0x34325241)
+            const valid_format = (offscreen_info.drm_format == 0x34324241 or offscreen_info.drm_format == 0x34325241);
+            if (valid_format and offscreen_info.width == 320 and offscreen_info.height == 240 and offscreen_info.stride >= 320 * 4) {
+                std.debug.print("testExportSurfaceDMABuf: PASS - metadata matches expected FourCC format and dimensions\n", .{});
+            } else {
+                std.debug.print("testExportSurfaceDMABuf: FAIL - unexpected metadata: format=0x{x} w={} h={} stride={}\n", .{
+                    offscreen_info.drm_format, offscreen_info.width, offscreen_info.height, offscreen_info.stride,
+                });
+            }
+
+            // Test importing the exported DMA-BUF texture back
+            const import_desc = zgraphics.ZawraGraphicsTextureDesc{
+                .format = .R8G8B8A8_Unorm,
+                .width = offscreen_info.width,
+                .height = offscreen_info.height,
+                .external_handle = null,
+            };
+            const imported = zgraphics.ZG_ImportTextureFD(off, offscreen_info.fd, &import_desc);
+            if (imported) |tex| {
+                std.debug.print("testExportSurfaceDMABuf: PASS - imported DMA-BUF texture back: {any}\n", .{tex});
+                zgraphics.ZG_DestroyTexture(off, tex);
+            } else {
+                std.debug.print("testExportSurfaceDMABuf: note: re-import returned null (GPU driver dependent)\n", .{});
+            }
+
+            if (offscreen_info.fd >= 0) {
+                _ = std.os.linux.close(offscreen_info.fd);
+            }
+        } else {
+            std.debug.print("testExportSurfaceDMABuf: FAIL - failed to export offscreen DMA-BUF\n", .{});
+        }
+    } else {
+        std.debug.print("testExportSurfaceDMABuf: FAIL - could not create offscreen surface\n", .{});
     }
 }
 

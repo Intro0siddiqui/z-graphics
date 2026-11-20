@@ -14,6 +14,7 @@ export fn _force_zgraphics_exports() void {
     _ = compositor.ZG_CompositorDestroy;
     _ = compositor.ZG_CompositorResize;
     _ = compositor.ZG_CompositorGetSurfaceHandle;
+    _ = ZG_ExportSurfaceDMABuf;
 }
 
 /// The internal structure representing a graphics surface.
@@ -99,6 +100,22 @@ pub export fn ZG_ExportSurfaceFD(handle: ?ZawraGraphicsHandle) i32 {
     if (handle == null) return -1;
     if (builtin.os.tag == .linux) return linux_vulkan.exportSurfaceFD(@ptrCast(@alignCast(handle.?)));
     return -1;
+}
+
+pub const ZawraGraphicsDMABufInfo = extern struct {
+    fd: i32,
+    width: u32,
+    height: u32,
+    stride: u32,
+    offset: u32,
+    drm_format: u32,
+    drm_modifier: u64,
+};
+
+pub export fn ZG_ExportSurfaceDMABuf(surface: ?ZawraGraphicsHandle, info: *ZawraGraphicsDMABufInfo) bool {
+    if (surface == null) return false;
+    if (builtin.os.tag == .linux) return linux_vulkan.exportSurfaceDMABuf(@ptrCast(@alignCast(surface.?)), info);
+    return false;
 }
 
 pub export fn ZG_CreateBuffer(handle: ZawraGraphicsHandle, size: usize, buffer_type: BufferType) ?ZawraGraphicsBuffer {
