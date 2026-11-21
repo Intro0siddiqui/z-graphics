@@ -15,6 +15,7 @@ export fn _force_zgraphics_exports() void {
     _ = compositor.ZG_CompositorResize;
     _ = compositor.ZG_CompositorGetSurfaceHandle;
     _ = ZG_ExportSurfaceDMABuf;
+    _ = ZG_ExportSurfaceSharedHandle;
 }
 
 /// The internal structure representing a graphics surface.
@@ -99,7 +100,14 @@ pub export fn ZG_SwapBuffers(handle: ZawraGraphicsHandle) void {
 pub export fn ZG_ExportSurfaceFD(handle: ?ZawraGraphicsHandle) i32 {
     if (handle == null) return -1;
     if (builtin.os.tag == .linux) return linux_vulkan.exportSurfaceFD(@ptrCast(@alignCast(handle.?)));
+    if (builtin.os.tag == .windows) return windows_d3d12.exportSurfaceFD(@ptrCast(@alignCast(handle.?)));
     return -1;
+}
+
+pub export fn ZG_ExportSurfaceSharedHandle(handle: ?ZawraGraphicsHandle) ?*anyopaque {
+    if (handle == null) return null;
+    if (builtin.os.tag == .windows) return windows_d3d12.exportSurfaceSharedHandle(@ptrCast(@alignCast(handle.?)));
+    return null;
 }
 
 pub const ZawraGraphicsDMABufInfo = extern struct {
@@ -743,7 +751,7 @@ pub export fn ZG_BindStencilTestPipeline(stencil_handle: ZawraGraphicsStencilSur
 pub export fn ZG_GetDeviceProperty(handle: ZawraGraphicsHandle, name: u32) u32 {
     if (builtin.os.tag == .linux) return linux_vulkan.getDeviceProperty(@ptrCast(@alignCast(handle)), name);
     if (builtin.os.tag == .macos) return macos_metal.getDeviceProperty(@ptrCast(@alignCast(handle)), name);
-    if (builtin.os.tag == .windows) return windows_d3d12.getDeviceProperty(@ptrCast(@alignCast(handle)), name);
+    if (builtin.os.tag == .windows) return windows_d3d12.getDeviceProperty(@as(*windows_d3d12.D3D12Surface, @ptrCast(@alignCast(handle))), name);
     return 0;
 }
 

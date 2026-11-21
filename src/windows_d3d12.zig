@@ -183,6 +183,20 @@ const DXGI_SWAP_CHAIN_DESC1 = extern struct {
     Flags: u32,
 };
 
+const IID_IDXGIResource = GUID{
+    .Data1 = 0x035f3ab4,
+    .Data2 = 0x482e,
+    .Data3 = 0x4e50,
+    .Data4 = .{ 0xb4, 0x1f, 0x8a, 0x7f, 0x8b, 0xd8, 0x96, 0x0b },
+};
+
+const IID_IDXGIResource1 = GUID{
+    .Data1 = 0x30961379,
+    .Data2 = 0x4609,
+    .Data3 = 0x4a41,
+    .Data4 = .{ 0x99, 0x8e, 0x54, 0xfe, 0x56, 0x7e, 0xe0, 0xc1 },
+};
+
 const IID_IDXGIFactory4 = GUID{
     .Data1 = 0x1bc6ea02,
     .Data2 = 0xef36,
@@ -305,22 +319,63 @@ pub fn swapBuffers(surface: *D3D12Surface) void {
     }
 }
 
+pub fn exportSurfaceSharedHandle(surface: *D3D12Surface) ?*anyopaque {
+    if (builtin.os.tag != .windows) return null;
+    const res = surface.resource orelse return null;
+
+    // 1. Try querying IDXGIResource1 on the resource and calling CreateSharedHandle (vtable index 13)
+    const res_vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(res))).*;
+    const query_interface = @as(*const fn (*anyopaque, *const GUID, *?*anyopaque) callconv(.c) HRESULT, @ptrCast(res_vtbl[0]));
+
+    var dxgi_res1: ?*anyopaque = null;
+    if (query_interface(res, &IID_IDXGIResource1, &dxgi_res1) >= 0 and dxgi_res1 != null) {
+        defer {
+            const vtbl1 = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(dxgi_res1.?))).*;
+            const release = @as(*const fn (*anyopaque) callconv(.c) u32, @ptrCast(vtbl1[2]));
+            _ = release(dxgi_res1.?);
+        }
+        const vtbl1 = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(dxgi_res1.?))).*;
+        const create_shared_handle = @as(*const fn (*anyopaque, ?*anyopaque, u32, ?[*:0]const u16, *?*anyopaque) callconv(.c) HRESULT, @ptrCast(vtbl1[13]));
+        var handle: ?*anyopaque = null;
+        // GENERIC_ALL = 0x10000000
+        if (create_shared_handle(dxgi_res1.?, null, 0x10000000, null, &handle) >= 0 and handle != null) {
+            return handle;
+        }
+    }
+
+    // 2. Fall back to ID3D12Device::CreateSharedHandle (vtable index 31 in ID3D12Device)
+    if (surface.device) |device| {
+        const dev_vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(device))).*;
+        const dev_create_shared_handle = @as(*const fn (*anyopaque, *anyopaque, ?*anyopaque, u32, ?[*:0]const u16, *?*anyopaque) callconv(.c) HRESULT, @ptrCast(dev_vtbl[31]));
+        var handle: ?*anyopaque = null;
+        if (dev_create_shared_handle(device, res, null, 0x10000000, null, &handle) >= 0 and handle != null) {
+            return handle;
+        }
+    }
+
+    // 3. Fall back to querying IDXGIResource to call GetSharedHandle (vtable index 8)
+    var dxgi_res: ?*anyopaque = null;
+    if (query_interface(res, &IID_IDXGIResource, &dxgi_res) >= 0 and dxgi_res != null) {
+        defer {
+            const vtbl0 = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(dxgi_res.?))).*;
+            const release = @as(*const fn (*anyopaque) callconv(.c) u32, @ptrCast(vtbl0[2]));
+            _ = release(dxgi_res.?);
+        }
+        const vtbl0 = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(dxgi_res.?))).*;
+        const get_shared_handle = @as(*const fn (*anyopaque, *?*anyopaque) callconv(.c) HRESULT, @ptrCast(vtbl0[8]));
+        var handle: ?*anyopaque = null;
+        if (get_shared_handle(dxgi_res.?, &handle) >= 0 and handle != null) {
+            return handle;
+        }
+    }
+
+    return null;
+}
+
 pub fn exportSurfaceFD(surface: *D3D12Surface) i32 {
     if (builtin.os.tag != .windows) return -1;
-    if (surface.resource) |res| {
-        const vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(surface.device))).*;
-        // CreateSharedHandle is at index 31 in ID3D12Device (sometimes 46 in some interfaces, but 31 for base ID3D12Device)
-        var create_shared_handle: ?*const fn (*anyopaque, *anyopaque, ?*anyopaque, u32, ?[*:0]const u16, *?*anyopaque) callconv(.c) HRESULT = undefined;
-        if (true) create_shared_handle = @as(@TypeOf(create_shared_handle), @ptrCast(vtbl[31]));
-        if (create_shared_handle) |fn_ptr| {
-            var handle: ?*anyopaque = null;
-            // GENERIC_ALL is 0x10000000
-            if (fn_ptr(surface.device.?, res, null, 0x10000000, null, &handle) >= 0) {
-                if (handle) |h| {
-                    return @as(i32, @bitCast(@as(u32, @truncate(@intFromPtr(h)))));
-                }
-            }
-        }
+    if (exportSurfaceSharedHandle(surface)) |h| {
+        return @as(i32, @bitCast(@as(u32, @truncate(@intFromPtr(h)))));
     }
     return -1;
 }

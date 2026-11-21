@@ -7,7 +7,8 @@ pub fn main(init: std.process.Init.Minimal) !void {
     var run_p2 = false;
     var run_p3 = false;
     var run_p4 = false;
-    var arg_it = init.args.iterate();
+    var arg_it = try init.args.iterateAllocator(std.heap.page_allocator);
+    defer arg_it.deinit();
     _ = arg_it.next();
     while (arg_it.next()) |arg| {
         if (std.mem.eql(u8, arg, "--image")) run_image = true;
