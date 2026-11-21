@@ -8,91 +8,224 @@ pub const MetalSurface = struct {
     texture: ?*anyopaque,
     window: ?*anyopaque,
     view: ?*anyopaque,
+    iosurface: ?*anyopaque,
     width: u32,
     height: u32,
 };
 
-extern fn objc_getClass(name: [*:0]const u8) ?*anyopaque;
-extern fn sel_registerName(name: [*:0]const u8) ?*anyopaque;
-extern fn objc_msgSend(self: ?*anyopaque, op: ?*anyopaque, ...) ?*anyopaque;
+// Pure C-runtime / dlopen / dlsym dynamic dispatch to allow seamless
+// cross-compilation on Linux/Windows hosts without Mach-O framework SDK stubs.
+extern fn dlopen(path: ?[*:0]const u8, mode: c_int) ?*anyopaque;
+extern fn dlsym(handle: ?*anyopaque, symbol: [*:0]const u8) ?*anyopaque;
+const RTLD_LAZY: c_int = 0x1;
+
+const Fn_objc_getClass = *const fn (name: [*:0]const u8) callconv(.c) ?*anyopaque;
+const Fn_sel_registerName = *const fn (name: [*:0]const u8) callconv(.c) ?*anyopaque;
+const Fn_objc_msgSend = *const fn (self: ?*anyopaque, op: ?*anyopaque, ...) callconv(.c) ?*anyopaque;
+const Fn_MTLCreateSystemDefaultDevice = *const fn () callconv(.c) ?*anyopaque;
+
+const Fn_IOSurfaceCreate = *const fn (properties: ?*anyopaque) callconv(.c) ?*anyopaque;
+const Fn_IOSurfaceGetID = *const fn (buffer: ?*anyopaque) callconv(.c) u32;
+const Fn_IOSurfaceLookup = *const fn (csid: u32) callconv(.c) ?*anyopaque;
+
+var libs_initialized: bool = false;
+var p_objc_getClass: ?Fn_objc_getClass = null;
+var p_sel_registerName: ?Fn_sel_registerName = null;
+var p_objc_msgSend: ?Fn_objc_msgSend = null;
+var p_MTLCreateSystemDefaultDevice: ?Fn_MTLCreateSystemDefaultDevice = null;
+var p_IOSurfaceCreate: ?Fn_IOSurfaceCreate = null;
+var p_IOSurfaceGetID: ?Fn_IOSurfaceGetID = null;
+var p_IOSurfaceLookup: ?Fn_IOSurfaceLookup = null;
+
+fn initDynamicLibraries() bool {
+    if (libs_initialized) return true;
+    if (builtin.os.tag != .macos) return false;
+
+    // Load Objective-C runtime
+    var objc_lib = dlopen("/usr/lib/libobjc.A.dylib", RTLD_LAZY);
+    if (objc_lib == null) {
+        objc_lib = dlopen(null, RTLD_LAZY);
+    }
+    if (objc_lib) |lib| {
+        if (dlsym(lib, "objc_getClass")) |sym| {
+            p_objc_getClass = @ptrCast(@alignCast(sym));
+        }
+        if (dlsym(lib, "sel_registerName")) |sym| {
+            p_sel_registerName = @ptrCast(@alignCast(sym));
+        }
+        if (dlsym(lib, "objc_msgSend")) |sym| {
+            p_objc_msgSend = @ptrCast(@alignCast(sym));
+        }
+    }
+
+    // Load AppKit and QuartzCore for UI / CAMetalLayer
+    _ = dlopen("/System/Library/Frameworks/AppKit.framework/AppKit", RTLD_LAZY);
+    _ = dlopen("/System/Library/Frameworks/QuartzCore.framework/QuartzCore", RTLD_LAZY);
+
+    // Load Metal framework
+    const metal_lib = dlopen("/System/Library/Frameworks/Metal.framework/Metal", RTLD_LAZY);
+    if (metal_lib) |lib| {
+        if (dlsym(lib, "MTLCreateSystemDefaultDevice")) |sym| {
+            p_MTLCreateSystemDefaultDevice = @ptrCast(@alignCast(sym));
+        }
+    }
+
+    // Load IOSurface framework for cross-process surface sharing (WebKit IPC)
+    const iosurface_lib = dlopen("/System/Library/Frameworks/IOSurface.framework/IOSurface", RTLD_LAZY);
+    if (iosurface_lib) |lib| {
+        if (dlsym(lib, "IOSurfaceCreate")) |sym| {
+            p_IOSurfaceCreate = @ptrCast(@alignCast(sym));
+        }
+        if (dlsym(lib, "IOSurfaceGetID")) |sym| {
+            p_IOSurfaceGetID = @ptrCast(@alignCast(sym));
+        }
+        if (dlsym(lib, "IOSurfaceLookup")) |sym| {
+            p_IOSurfaceLookup = @ptrCast(@alignCast(sym));
+        }
+    }
+
+    libs_initialized = (p_objc_getClass != null and p_sel_registerName != null and p_objc_msgSend != null);
+    return libs_initialized;
+}
+
+pub fn getClass(name: [*:0]const u8) ?*anyopaque {
+    if (!initDynamicLibraries()) return null;
+    return if (p_objc_getClass) |f| f(name) else null;
+}
+
+pub fn sel(name: [*:0]const u8) ?*anyopaque {
+    if (!initDynamicLibraries()) return null;
+    return if (p_sel_registerName) |f| f(name) else null;
+}
+
+pub fn msgSend(self: ?*anyopaque, op: ?*anyopaque, args: anytype) ?*anyopaque {
+    if (!initDynamicLibraries()) return null;
+    return if (p_objc_msgSend) |f| @call(.auto, f, .{ self, op } ++ args) else null;
+}
 
 pub fn createWindow(width: u32, height: u32) ?*anyopaque {
     if (builtin.os.tag != .macos) return null;
+    if (!initDynamicLibraries()) return null;
 
-    const NSWindow = objc_getClass("NSWindow") orelse return null;
-    const alloc = sel_registerName("alloc");
-    const init = sel_registerName("initWithContentRect:styleMask:backing:defer:");
-    const makeKeyAndOrderFront = sel_registerName("makeKeyAndOrderFront:");
-    const setTitle = sel_registerName("setTitle:");
-    const NSString = objc_getClass("NSString");
-    const stringWithUTF8String = sel_registerName("stringWithUTF8String:");
+    const NSWindow = getClass("NSWindow") orelse return null;
+    const alloc = sel("alloc");
+    const init = sel("initWithContentRect:styleMask:backing:defer:");
+    const makeKeyAndOrderFront = sel("makeKeyAndOrderFront:");
+    const setTitle = sel("setTitle:");
+    const NSString = getClass("NSString");
+    const stringWithUTF8String = sel("stringWithUTF8String:");
 
     const rect = [4]f64{ 100, 100, @floatFromInt(width), @floatFromInt(height) };
     const styleMask: usize = 1 | 2 | 4;
     const backing: usize = 2;
 
-    const window_alloc = objc_msgSend(NSWindow, alloc);
-    const window = objc_msgSend(window_alloc, init, &rect, styleMask, backing, @as(u8, 0));
+    const window_alloc = msgSend(NSWindow, alloc, .{});
+    const window = msgSend(window_alloc, init, .{ &rect, styleMask, backing, @as(u8, 0) });
 
-    const title = objc_msgSend(NSString, stringWithUTF8String, @as([*:0]const u8, "Zawra Browser"));
-    _ = objc_msgSend(window, setTitle, title);
-    _ = objc_msgSend(window, makeKeyAndOrderFront, @as(?*anyopaque, null));
+    const title = msgSend(NSString, stringWithUTF8String, .{@as([*:0]const u8, "Zawra Browser")});
+    _ = msgSend(window, setTitle, .{title});
+    _ = msgSend(window, makeKeyAndOrderFront, .{@as(?*anyopaque, null)});
 
     return window;
 }
 
-extern fn MTLCreateSystemDefaultDevice() ?*anyopaque;
-
 pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*MetalSurface {
     if (builtin.os.tag != .macos) return null;
+    if (!initDynamicLibraries()) return null;
 
-    const device = MTLCreateSystemDefaultDevice() orelse return null;
+    const createDevice = p_MTLCreateSystemDefaultDevice orelse return null;
+    const device = createDevice() orelse return null;
 
     var surface_obj = std.heap.page_allocator.create(MetalSurface) catch return null;
     surface_obj.device = device;
     surface_obj.window = window;
+    surface_obj.iosurface = null;
 
-    const newCommandQueue = sel_registerName("newCommandQueue");
-    surface_obj.command_queue = objc_msgSend(device, newCommandQueue);
+    const newCommandQueue = sel("newCommandQueue");
+    surface_obj.command_queue = msgSend(device, newCommandQueue, .{});
 
-    const MTLTextureDescriptor = objc_getClass("MTLTextureDescriptor") orelse return null;
-    const texture2DDescriptorWithPixelFormat = sel_registerName("texture2DDescriptorWithPixelFormat:width:height:mipmapped:");
-    const newTextureWithDescriptor = sel_registerName("newTextureWithDescriptor:");
+    const MTLTextureDescriptor = getClass("MTLTextureDescriptor") orelse return null;
+    const texture2DDescriptorWithPixelFormat = sel("texture2DDescriptorWithPixelFormat:width:height:mipmapped:");
 
-    const pixelFormat: usize = 70;
+    const pixelFormat: usize = 70; // MTLPixelFormatBGRA8Unorm
     const mipmapped: usize = 0;
 
-    const descriptor = objc_msgSend(
+    const descriptor = msgSend(
         MTLTextureDescriptor,
         texture2DDescriptorWithPixelFormat,
-        pixelFormat,
-        @as(usize, width),
-        @as(usize, height),
-        mipmapped,
+        .{
+            pixelFormat,
+            @as(usize, width),
+            @as(usize, height),
+            mipmapped,
+        },
     );
 
-    const setUsage = sel_registerName("setUsage:");
-    _ = objc_msgSend(descriptor, setUsage, @as(usize, 1 | 2));
+    const setUsage = sel("setUsage:");
+    _ = msgSend(descriptor, setUsage, .{@as(usize, 1 | 2)}); // MTLTextureUsageShaderRead | MTLTextureUsageRenderTarget
 
-    surface_obj.texture = objc_msgSend(device, newTextureWithDescriptor, descriptor);
+    // Attempt to allocate an IOSurface backing for WebKit zero-copy IPC sharing
+    if (p_IOSurfaceCreate) |createIOSurface| {
+        const NSDictionary = getClass("NSDictionary");
+        const NSNumber = getClass("NSNumber");
+        const NSString = getClass("NSString");
+        if (NSDictionary != null and NSNumber != null and NSString != null) {
+            const numberWithUnsignedInt = sel("numberWithUnsignedInt:");
+            const stringWithUTF8String = sel("stringWithUTF8String:");
+            const dictionaryWithObjects_forKeys_count = sel("dictionaryWithObjects:forKeys:count:");
+
+            const keys = [_]?*anyopaque{
+                msgSend(NSString, stringWithUTF8String, .{@as([*:0]const u8, "IOSurfaceWidth")}),
+                msgSend(NSString, stringWithUTF8String, .{@as([*:0]const u8, "IOSurfaceHeight")}),
+                msgSend(NSString, stringWithUTF8String, .{@as([*:0]const u8, "IOSurfaceBytesPerElement")}),
+                msgSend(NSString, stringWithUTF8String, .{@as([*:0]const u8, "IOSurfacePixelFormat")}),
+            };
+            const values = [_]?*anyopaque{
+                msgSend(NSNumber, numberWithUnsignedInt, .{width}),
+                msgSend(NSNumber, numberWithUnsignedInt, .{height}),
+                msgSend(NSNumber, numberWithUnsignedInt, .{@as(u32, 4)}),
+                msgSend(NSNumber, numberWithUnsignedInt, .{@as(u32, 0x42475241)}), // 'BGRA'
+            };
+
+            const dict = msgSend(
+                NSDictionary,
+                dictionaryWithObjects_forKeys_count,
+                .{ &values, &keys, @as(usize, 4) },
+            );
+
+            if (dict) |d| {
+                surface_obj.iosurface = createIOSurface(d);
+            }
+        }
+    }
+
+    if (surface_obj.iosurface) |iosurf| {
+        const newTextureWithDescriptor_iosurface_plane = sel("newTextureWithDescriptor:iosurface:plane:");
+        surface_obj.texture = msgSend(device, newTextureWithDescriptor_iosurface_plane, .{ descriptor, iosurf, @as(usize, 0) });
+    }
+
+    if (surface_obj.texture == null) {
+        const newTextureWithDescriptor = sel("newTextureWithDescriptor:");
+        surface_obj.texture = msgSend(device, newTextureWithDescriptor, .{descriptor});
+    }
 
     if (surface_obj.window) |win| {
-        const CAMetalLayer = objc_getClass("CAMetalLayer") orelse return null;
-        const layer_alloc = objc_msgSend(CAMetalLayer, sel_registerName("alloc"));
-        const layer = objc_msgSend(layer_alloc, sel_registerName("init"));
+        const CAMetalLayer = getClass("CAMetalLayer") orelse return null;
+        const layer_alloc = msgSend(CAMetalLayer, sel("alloc"), .{});
+        const layer = msgSend(layer_alloc, sel("init"), .{});
 
-        const setDevice = sel_registerName("setDevice:");
-        _ = objc_msgSend(layer, setDevice, device);
+        const setDevice = sel("setDevice:");
+        _ = msgSend(layer, setDevice, .{device});
 
-        const setPixelFormat = sel_registerName("setPixelFormat:");
-        _ = objc_msgSend(layer, setPixelFormat, pixelFormat);
+        const setPixelFormat = sel("setPixelFormat:");
+        _ = msgSend(layer, setPixelFormat, .{pixelFormat});
 
-        const contentView = objc_msgSend(win, sel_registerName("contentView"));
-        const setLayer = sel_registerName("setLayer:");
-        const setWantsLayer = sel_registerName("setWantsLayer:");
+        const contentView = msgSend(win, sel("contentView"), .{});
+        const setLayer = sel("setLayer:");
+        const setWantsLayer = sel("setWantsLayer:");
 
-        _ = objc_msgSend(contentView, setLayer, layer);
-        _ = objc_msgSend(contentView, setWantsLayer, @as(u8, 1));
+        _ = msgSend(contentView, setLayer, .{layer});
+        _ = msgSend(contentView, setWantsLayer, .{@as(u8, 1)});
 
         surface_obj.view = layer;
     } else {
@@ -114,11 +247,11 @@ pub fn swapBuffers(surface: *MetalSurface) void {
     if (builtin.os.tag != .macos) return;
 
     if (surface.view) |layer| {
-        const nextDrawable = sel_registerName("nextDrawable");
-        const drawable = objc_msgSend(layer, nextDrawable);
+        const nextDrawable = sel("nextDrawable");
+        const drawable = msgSend(layer, nextDrawable, .{});
         if (drawable) |d| {
-            const present_sel = sel_registerName("present");
-            _ = objc_msgSend(d, present_sel);
+            const present_sel = sel("present");
+            _ = msgSend(d, present_sel, .{});
         }
     }
 }
@@ -132,14 +265,23 @@ pub fn present(surface: *MetalSurface) void {
     swapBuffers(surface);
 }
 
+pub fn exportSurfaceIOSurface(surface: *MetalSurface) ?*anyopaque {
+    if (builtin.os.tag != .macos) return null;
+    if (surface.iosurface) |isurf| return isurf;
+    if (surface.texture) |tex| {
+        const iosurface = msgSend(tex, sel("iosurface"), .{});
+        if (iosurface) |isurf| return isurf;
+    }
+    return null;
+}
+
 pub fn exportSurfaceFD(surface: *MetalSurface) i32 {
     if (builtin.os.tag != .macos) return -1;
-    if (surface.texture) |tex| {
-        const iosurface = objc_msgSend(tex, sel_registerName("iosurface"));
-        if (iosurface) |isurf| {
-            const IOSurfaceGetID = sel_registerName("IOSurfaceGetID");
-            const id = objc_msgSend(isurf, IOSurfaceGetID);
-            return @as(i32, @bitCast(@as(u32, @truncate(@intFromPtr(id)))));
+    const isurf = exportSurfaceIOSurface(surface) orelse return -1;
+    if (p_IOSurfaceGetID) |getIdFn| {
+        const id = getIdFn(isurf);
+        if (id != 0) {
+            return @as(i32, @bitCast(id));
         }
     }
     return -1;
@@ -152,8 +294,8 @@ pub fn createBuffer(surface: *MetalSurface, size: usize, buffer_type: u32) ?*Met
     _ = buffer_type;
     const MTLResourceStorageModeShared: usize = 0;
     const MTLResourceCPUCacheModeDefaultCache: usize = 0;
-    const newBufferWithLength = sel_registerName("newBufferWithLength:options:");
-    const buf = objc_msgSend(surface.device, newBufferWithLength, @as(usize, size), @as(usize, MTLResourceStorageModeShared | MTLResourceCPUCacheModeDefaultCache)) orelse return null;
+    const newBufferWithLength = sel("newBufferWithLength:options:");
+    const buf = msgSend(surface.device, newBufferWithLength, .{ @as(usize, size), @as(usize, MTLResourceStorageModeShared | MTLResourceCPUCacheModeDefaultCache) }) orelse return null;
     const mb = std.heap.page_allocator.create(MetalBuffer) catch return null;
     mb.* = .{ .buffer = buf, .size = size };
     return mb;
@@ -169,23 +311,23 @@ pub const MetalCommandBuffer = struct { cmd_buffer: ?*anyopaque, render_encoder:
 
 pub fn beginCommandBuffer(surface: *MetalSurface) ?*MetalCommandBuffer {
     if (builtin.os.tag != .macos) return null;
-    const commandBuffer = sel_registerName("commandBuffer");
-    const cmd = objc_msgSend(surface.command_queue, commandBuffer) orelse return null;
-    const MTLRenderPassDescriptor = objc_getClass("MTLRenderPassDescriptor") orelse return null;
-    const renderPassDescriptor = sel_registerName("renderPassDescriptor");
-    const pass_desc = objc_msgSend(MTLRenderPassDescriptor, renderPassDescriptor);
-    const colorAttachments = sel_registerName("colorAttachments");
-    const attachments = objc_msgSend(pass_desc, colorAttachments);
-    const objectAtIndexedSubscript = sel_registerName("objectAtIndexedSubscript:");
-    const attachment0 = objc_msgSend(attachments, objectAtIndexedSubscript, @as(usize, 0));
-    const setTexture = sel_registerName("setTexture:");
-    _ = objc_msgSend(attachment0, setTexture, surface.texture);
-    const setStoreAction = sel_registerName("setStoreAction:");
-    _ = objc_msgSend(attachment0, setStoreAction, @as(usize, 1));
-    const setLoadAction = sel_registerName("setLoadAction:");
-    _ = objc_msgSend(attachment0, setLoadAction, @as(usize, 0));
-    const renderCommandEncoderWithDescriptor = sel_registerName("renderCommandEncoderWithDescriptor:");
-    const render_encoder = objc_msgSend(cmd, renderCommandEncoderWithDescriptor, pass_desc);
+    const commandBuffer = sel("commandBuffer");
+    const cmd = msgSend(surface.command_queue, commandBuffer, .{}) orelse return null;
+    const MTLRenderPassDescriptor = getClass("MTLRenderPassDescriptor") orelse return null;
+    const renderPassDescriptor = sel("renderPassDescriptor");
+    const pass_desc = msgSend(MTLRenderPassDescriptor, renderPassDescriptor, .{});
+    const colorAttachments = sel("colorAttachments");
+    const attachments = msgSend(pass_desc, colorAttachments, .{});
+    const objectAtIndexedSubscript = sel("objectAtIndexedSubscript:");
+    const attachment0 = msgSend(attachments, objectAtIndexedSubscript, .{@as(usize, 0)});
+    const setTexture = sel("setTexture:");
+    _ = msgSend(attachment0, setTexture, .{surface.texture});
+    const setStoreAction = sel("setStoreAction:");
+    _ = msgSend(attachment0, setStoreAction, .{@as(usize, 1)});
+    const setLoadAction = sel("setLoadAction:");
+    _ = msgSend(attachment0, setLoadAction, .{@as(usize, 0)});
+    const renderCommandEncoderWithDescriptor = sel("renderCommandEncoderWithDescriptor:");
+    const render_encoder = msgSend(cmd, renderCommandEncoderWithDescriptor, .{pass_desc});
     const mcb = std.heap.page_allocator.create(MetalCommandBuffer) catch return null;
     mcb.* = .{ .cmd_buffer = cmd, .render_encoder = render_encoder };
     return mcb;
@@ -205,32 +347,32 @@ pub fn cmdClearAttachments(cmd: *MetalCommandBuffer, color: bool, depth: bool, s
 
 pub fn cmdClearColor(cmd: *MetalCommandBuffer, r: f32, g: f32, b: f32, a: f32) void {
     if (builtin.os.tag != .macos) return;
-    const MTLRenderPassDescriptor = objc_getClass("MTLRenderPassDescriptor") orelse return;
-    const renderPassDescriptor = sel_registerName("renderPassDescriptor");
-    const pass_desc = objc_msgSend(MTLRenderPassDescriptor, renderPassDescriptor);
-    const colorAttachments = sel_registerName("colorAttachments");
-    const attachments = objc_msgSend(pass_desc, colorAttachments);
-    const objectAtIndexedSubscript = sel_registerName("objectAtIndexedSubscript:");
-    const attachment0 = objc_msgSend(attachments, objectAtIndexedSubscript, @as(usize, 0));
+    const MTLRenderPassDescriptor = getClass("MTLRenderPassDescriptor") orelse return;
+    const renderPassDescriptor = sel("renderPassDescriptor");
+    const pass_desc = msgSend(MTLRenderPassDescriptor, renderPassDescriptor, .{});
+    const colorAttachments = sel("colorAttachments");
+    const attachments = msgSend(pass_desc, colorAttachments, .{});
+    const objectAtIndexedSubscript = sel("objectAtIndexedSubscript:");
+    const attachment0 = msgSend(attachments, objectAtIndexedSubscript, .{@as(usize, 0)});
     const MTLClearColor = extern struct { r: f64, g: f64, b: f64, a: f64 };
     const clear_color = MTLClearColor{ .r = @floatCast(r), .g = @floatCast(g), .b = @floatCast(b), .a = @floatCast(a) };
-    const setClearColor = sel_registerName("setClearColor:");
-    _ = objc_msgSend(attachment0, setClearColor, clear_color);
-    const setLoadAction = sel_registerName("setLoadAction:");
-    _ = objc_msgSend(attachment0, setLoadAction, @as(usize, 2));
-    const renderCommandEncoderWithDescriptor = sel_registerName("renderCommandEncoderWithDescriptor:");
-    const encoder = objc_msgSend(cmd.cmd_buffer, renderCommandEncoderWithDescriptor, pass_desc);
+    const setClearColor = sel("setClearColor:");
+    _ = msgSend(attachment0, setClearColor, .{clear_color});
+    const setLoadAction = sel("setLoadAction:");
+    _ = msgSend(attachment0, setLoadAction, .{@as(usize, 2)});
+    const renderCommandEncoderWithDescriptor = sel("renderCommandEncoderWithDescriptor:");
+    const encoder = msgSend(cmd.cmd_buffer, renderCommandEncoderWithDescriptor, .{pass_desc});
     if (encoder) |enc| {
-        const endEncoding = sel_registerName("endEncoding");
-        _ = objc_msgSend(enc, endEncoding);
+        const endEncoding = sel("endEncoding");
+        _ = msgSend(enc, endEncoding, .{});
     }
 }
 
 pub fn submitCommandBuffer(surface: *MetalSurface, cmd: *MetalCommandBuffer) void {
     if (builtin.os.tag != .macos) return;
     _ = surface;
-    const commit = sel_registerName("commit");
-    _ = objc_msgSend(cmd.cmd_buffer, commit);
+    const commit = sel("commit");
+    _ = msgSend(cmd.cmd_buffer, commit, .{});
 }
 
 pub const MetalPipeline = struct { pipeline_state: ?*anyopaque };
@@ -239,41 +381,41 @@ pub fn createPipeline(surface: *MetalSurface, desc: *const zgraphics.PipelineDes
     if (builtin.os.tag != .macos) return null;
     _ = desc;
 
-    const MTLRenderPipelineDescriptor = objc_getClass("MTLRenderPipelineDescriptor") orelse return null;
-    const alloc1 = sel_registerName("alloc");
-    const init1 = sel_registerName("init");
-    const pipeline_desc = objc_msgSend(MTLRenderPipelineDescriptor, alloc1);
-    _ = objc_msgSend(pipeline_desc, init1);
+    const MTLRenderPipelineDescriptor = getClass("MTLRenderPipelineDescriptor") orelse return null;
+    const alloc1 = sel("alloc");
+    const init1 = sel("init");
+    const pipeline_desc = msgSend(MTLRenderPipelineDescriptor, alloc1, .{});
+    _ = msgSend(pipeline_desc, init1, .{});
 
-    const setVertexFunction = sel_registerName("setVertexFunction:");
-    const setFragmentFunction = sel_registerName("setFragmentFunction:");
-    const setColorAttachments = sel_registerName("colorAttachments");
-    const object = sel_registerName("objectAtIndexedSubscript:");
-    const setPixelFormat = sel_registerName("setPixelFormat:");
+    const setVertexFunction = sel("setVertexFunction:");
+    const setFragmentFunction = sel("setFragmentFunction:");
+    const setColorAttachments = sel("colorAttachments");
+    const object = sel("objectAtIndexedSubscript:");
+    const setPixelFormat = sel("setPixelFormat:");
 
-    const NSString = objc_getClass("NSString") orelse return null;
+    const NSString = getClass("NSString") orelse return null;
     const msl_source = "#include <metal_stdlib>\nusing namespace metal;\nvertex float4 vs_main(uint vid [[vertex_id]]) { return float4(0.0, 0.0, 0.0, 1.0); }\nfragment float4 fs_main() { return float4(1.0, 0.0, 0.0, 1.0); }";
-    const msl_str = objc_msgSend(NSString, sel_registerName("stringWithUTF8String:"), @as([*:0]const u8, msl_source));
-    const newLibraryWithSource = sel_registerName("newLibraryWithSource:options:error:");
+    const msl_str = msgSend(NSString, sel("stringWithUTF8String:"), .{@as([*:0]const u8, msl_source)});
+    const newLibraryWithSource = sel("newLibraryWithSource:options:error:");
     var err: ?*anyopaque = null;
-    const lib = objc_msgSend(surface.device, newLibraryWithSource, msl_str, @as(?*anyopaque, null), &err) orelse return null;
+    const lib = msgSend(surface.device, newLibraryWithSource, .{ msl_str, @as(?*anyopaque, null), &err }) orelse return null;
 
-    const newFunctionWithName = sel_registerName("newFunctionWithName:");
-    const vs_name = objc_msgSend(NSString, sel_registerName("stringWithUTF8String:"), @as([*:0]const u8, "vs_main"));
-    const ps_name = objc_msgSend(NSString, sel_registerName("stringWithUTF8String:"), @as([*:0]const u8, "fs_main"));
-    const vertex_fn = objc_msgSend(lib, newFunctionWithName, vs_name) orelse return null;
-    const fragment_fn = objc_msgSend(lib, newFunctionWithName, ps_name) orelse return null;
+    const newFunctionWithName = sel("newFunctionWithName:");
+    const vs_name = msgSend(NSString, sel("stringWithUTF8String:"), .{@as([*:0]const u8, "vs_main")});
+    const ps_name = msgSend(NSString, sel("stringWithUTF8String:"), .{@as([*:0]const u8, "fs_main")});
+    const vertex_fn = msgSend(lib, newFunctionWithName, .{vs_name}) orelse return null;
+    const fragment_fn = msgSend(lib, newFunctionWithName, .{ps_name}) orelse return null;
 
-    _ = objc_msgSend(pipeline_desc, setVertexFunction, vertex_fn);
-    _ = objc_msgSend(pipeline_desc, setFragmentFunction, fragment_fn);
+    _ = msgSend(pipeline_desc, setVertexFunction, .{vertex_fn});
+    _ = msgSend(pipeline_desc, setFragmentFunction, .{fragment_fn});
 
-    const attachments = objc_msgSend(pipeline_desc, setColorAttachments);
-    const attachment0 = objc_msgSend(attachments, object, @as(usize, 0));
-    _ = objc_msgSend(attachment0, setPixelFormat, @as(usize, 70));
+    const attachments = msgSend(pipeline_desc, setColorAttachments, .{});
+    const attachment0 = msgSend(attachments, object, .{@as(usize, 0)});
+    _ = msgSend(attachment0, setPixelFormat, .{@as(usize, 70)});
 
-    const newRenderPipelineStateWithDescriptor = sel_registerName("newRenderPipelineStateWithDescriptor:error:");
+    const newRenderPipelineStateWithDescriptor = sel("newRenderPipelineStateWithDescriptor:error:");
     var pipeline_error: ?*anyopaque = null;
-    const state = @as(?*anyopaque, @ptrCast(objc_msgSend(surface.device, newRenderPipelineStateWithDescriptor, pipeline_desc, @as(?*?*anyopaque, &pipeline_error)))) orelse return null;
+    const state = msgSend(surface.device, newRenderPipelineStateWithDescriptor, .{ pipeline_desc, @as(?*?*anyopaque, &pipeline_error) }) orelse return null;
     const mp = std.heap.page_allocator.create(MetalPipeline) catch return null;
     mp.* = .{ .pipeline_state = state };
     return mp;
@@ -288,16 +430,16 @@ pub fn destroyPipeline(surface: *MetalSurface, pipeline: ?*MetalPipeline) void {
 pub fn cmdBindPipeline(cmd: *MetalCommandBuffer, pipeline: *MetalPipeline) void {
     if (builtin.os.tag != .macos) return;
     if (cmd.render_encoder) |enc| {
-        const setRenderPipelineState = sel_registerName("setRenderPipelineState:");
-        _ = objc_msgSend(enc, setRenderPipelineState, pipeline.pipeline_state);
+        const setRenderPipelineState = sel("setRenderPipelineState:");
+        _ = msgSend(enc, setRenderPipelineState, .{pipeline.pipeline_state});
     }
 }
 
 pub fn cmdBindTexture(cmd: *MetalCommandBuffer, texture: *MetalTexture, binding: u32) void {
     if (builtin.os.tag != .macos) return;
     if (cmd.render_encoder) |enc| {
-        const setFragmentTexture = sel_registerName("setFragmentTexture:atIndex:");
-        _ = objc_msgSend(enc, setFragmentTexture, texture.texture, @as(usize, binding));
+        const setFragmentTexture = sel("setFragmentTexture:atIndex:");
+        _ = msgSend(enc, setFragmentTexture, .{ texture.texture, @as(usize, binding) });
     }
 }
 
@@ -320,12 +462,12 @@ pub fn cmdDraw(cmd: *MetalCommandBuffer, vertex_count: u32, instance_count: u32,
 pub fn uploadBuffer(buffer: *MetalBuffer, data: ?*const anyopaque, dataLen: usize) bool {
     if (builtin.os.tag != .macos) return false;
     if (data == null or dataLen == 0) return false;
-    const didModifyRange = sel_registerName("didModifyRange:");
-    const contents = sel_registerName("contents");
-    const ptr = objc_msgSend(buffer.buffer, contents) orelse return false;
+    const didModifyRange = sel("didModifyRange:");
+    const contents = sel("contents");
+    const ptr = msgSend(buffer.buffer, contents, .{}) orelse return false;
     @memcpy(@as([*]u8, @ptrCast(@alignCast(ptr)))[0..dataLen], @as([*]const u8, @ptrCast(@alignCast(data)))[0..dataLen]);
-    const range = struct { location: usize, length: usize }{ .location = 0, .length = dataLen };
-    _ = objc_msgSend(buffer.buffer, didModifyRange, &range);
+    const NSRange = extern struct { location: usize, length: usize };
+    _ = msgSend(buffer.buffer, didModifyRange, .{NSRange{ .location = 0, .length = dataLen }});
     buffer.size = dataLen;
     return true;
 }
@@ -359,18 +501,20 @@ pub fn createTexture(surface: *MetalSurface, desc: *const zgraphics.ZawraGraphic
         .YUV420_3Plane, .NV12_2Plane, .P010_10bit => return null,
         else => {},
     }
-    const MTLTextureDescriptor = objc_getClass("MTLTextureDescriptor") orelse return null;
-    const texture2DDescriptorWithPixelFormat = sel_registerName("texture2DDescriptorWithPixelFormat:width:height:mipmapped:");
-    const newTextureWithDescriptor = sel_registerName("newTextureWithDescriptor:");
-    const descriptor = objc_msgSend(
+    const MTLTextureDescriptor = getClass("MTLTextureDescriptor") orelse return null;
+    const texture2DDescriptorWithPixelFormat = sel("texture2DDescriptorWithPixelFormat:width:height:mipmapped:");
+    const newTextureWithDescriptor = sel("newTextureWithDescriptor:");
+    const descriptor = msgSend(
         MTLTextureDescriptor,
         texture2DDescriptorWithPixelFormat,
-        @as(usize, @intFromEnum(desc.format)),
-        desc.width,
-        desc.height,
-        @as(usize, 0),
+        .{
+            @as(usize, @intFromEnum(desc.format)),
+            desc.width,
+            desc.height,
+            @as(usize, 0),
+        },
     );
-    const tex = objc_msgSend(surface.device, newTextureWithDescriptor, descriptor) orelse return null;
+    const tex = msgSend(surface.device, newTextureWithDescriptor, .{descriptor}) orelse return null;
     const mt = std.heap.page_allocator.create(MetalTexture) catch return null;
     mt.* = .{ .texture = tex };
     return mt;
@@ -383,10 +527,39 @@ pub fn destroyTexture(surface: *MetalSurface, texture: ?*MetalTexture) void {
 }
 
 pub fn importTextureFD(surface: *MetalSurface, fd: i32, desc: *const zgraphics.ZawraGraphicsTextureDesc) ?*MetalTexture {
-    _ = surface;
-    _ = fd;
-    _ = desc;
-    return null;
+    if (builtin.os.tag != .macos) return null;
+    if (fd < 0) return null;
+    if (!initDynamicLibraries()) return null;
+
+    const lookupFn = p_IOSurfaceLookup orelse return null;
+    const iosurf = lookupFn(@as(u32, @bitCast(fd))) orelse return null;
+
+    const MTLTextureDescriptor = getClass("MTLTextureDescriptor") orelse return null;
+    const texture2DDescriptorWithPixelFormat = sel("texture2DDescriptorWithPixelFormat:width:height:mipmapped:");
+
+    const pixelFormat: usize = 70; // MTLPixelFormatBGRA8Unorm
+    const mipmapped: usize = 0;
+
+    const descriptor = msgSend(
+        MTLTextureDescriptor,
+        texture2DDescriptorWithPixelFormat,
+        .{
+            pixelFormat,
+            @as(usize, desc.width),
+            @as(usize, desc.height),
+            mipmapped,
+        },
+    ) orelse return null;
+
+    const setUsage = sel("setUsage:");
+    _ = msgSend(descriptor, setUsage, .{@as(usize, 1 | 2)});
+
+    const newTextureWithDescriptor_iosurface_plane = sel("newTextureWithDescriptor:iosurface:plane:");
+    const tex = msgSend(surface.device, newTextureWithDescriptor_iosurface_plane, .{ descriptor, iosurf, @as(usize, 0) }) orelse return null;
+
+    const mt = std.heap.page_allocator.create(MetalTexture) catch return null;
+    mt.* = .{ .texture = tex };
+    return mt;
 }
 
 pub fn beginLayer(cmd: *MetalCommandBuffer, layer_id: u32, x: f32, y: f32, width: f32, height: f32, opacity: f32) void {

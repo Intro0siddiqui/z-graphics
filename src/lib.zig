@@ -16,6 +16,8 @@ export fn _force_zgraphics_exports() void {
     _ = compositor.ZG_CompositorGetSurfaceHandle;
     _ = ZG_ExportSurfaceDMABuf;
     _ = ZG_ExportSurfaceSharedHandle;
+    _ = ZG_ExportSurfaceFD;
+    _ = ZG_ExportSurfaceIOSurface;
 }
 
 /// The internal structure representing a graphics surface.
@@ -100,8 +102,15 @@ pub export fn ZG_SwapBuffers(handle: ZawraGraphicsHandle) void {
 pub export fn ZG_ExportSurfaceFD(handle: ?ZawraGraphicsHandle) i32 {
     if (handle == null) return -1;
     if (builtin.os.tag == .linux) return linux_vulkan.exportSurfaceFD(@ptrCast(@alignCast(handle.?)));
+    if (builtin.os.tag == .macos) return macos_metal.exportSurfaceFD(@as(*macos_metal.MetalSurface, @ptrCast(@alignCast(handle.?))));
     if (builtin.os.tag == .windows) return windows_d3d12.exportSurfaceFD(@ptrCast(@alignCast(handle.?)));
     return -1;
+}
+
+pub export fn ZG_ExportSurfaceIOSurface(handle: ?ZawraGraphicsHandle) ?*anyopaque {
+    if (handle == null) return null;
+    if (builtin.os.tag == .macos) return macos_metal.exportSurfaceIOSurface(@as(*macos_metal.MetalSurface, @ptrCast(@alignCast(handle.?))));
+    return null;
 }
 
 pub export fn ZG_ExportSurfaceSharedHandle(handle: ?ZawraGraphicsHandle) ?*anyopaque {
@@ -293,17 +302,19 @@ pub export fn ZG_ReadbackTexture(handle: ?ZawraGraphicsHandle, texture: ZawraGra
 pub export fn ZG_ImportTextureFD(handle: ?ZawraGraphicsHandle, fd: i32, desc: *const ZawraGraphicsTextureDesc) ?ZawraGraphicsTexture {
     if (handle == null) return null;
     if (builtin.os.tag == .linux) return @ptrCast(linux_vulkan.importTextureFD(@ptrCast(@alignCast(handle.?)), fd, desc));
+    if (builtin.os.tag == .macos) return @ptrCast(macos_metal.importTextureFD(@as(*macos_metal.MetalSurface, @ptrCast(@alignCast(handle.?))), fd, desc));
     return null;
 }
 
 pub export fn ZG_CreateSwapchain(handle: ZawraGraphicsHandle) bool {
-    _ = handle;
     if (builtin.os.tag == .linux) return true;
+    if (builtin.os.tag == .macos) return macos_metal.createSwapchain(@as(*macos_metal.MetalSurface, @ptrCast(@alignCast(handle))));
     return false;
 }
 
 pub export fn ZG_Present(handle: ZawraGraphicsHandle) void {
     if (builtin.os.tag == .linux) linux_vulkan.present(@ptrCast(@alignCast(handle)));
+    if (builtin.os.tag == .macos) macos_metal.present(@as(*macos_metal.MetalSurface, @ptrCast(@alignCast(handle))));
 }
 
 pub export fn ZG_UploadBuffer(handle: ZawraGraphicsHandle, buffer: ZawraGraphicsBuffer, data: ?*const anyopaque, dataLen: usize) bool {
@@ -750,7 +761,7 @@ pub export fn ZG_BindStencilTestPipeline(stencil_handle: ZawraGraphicsStencilSur
 
 pub export fn ZG_GetDeviceProperty(handle: ZawraGraphicsHandle, name: u32) u32 {
     if (builtin.os.tag == .linux) return linux_vulkan.getDeviceProperty(@ptrCast(@alignCast(handle)), name);
-    if (builtin.os.tag == .macos) return macos_metal.getDeviceProperty(@ptrCast(@alignCast(handle)), name);
+    if (builtin.os.tag == .macos) return macos_metal.getDeviceProperty(@as(*macos_metal.MetalSurface, @ptrCast(@alignCast(handle))), name);
     if (builtin.os.tag == .windows) return windows_d3d12.getDeviceProperty(@as(*windows_d3d12.D3D12Surface, @ptrCast(@alignCast(handle))), name);
     return 0;
 }

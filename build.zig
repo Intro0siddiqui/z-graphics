@@ -96,10 +96,8 @@ pub fn build(b: *std.Build) void {
         smoke_test.root_module.linkSystemLibrary("vulkan", .{});
         smoke_test.root_module.linkSystemLibrary("X11", .{});
     } else if (target.result.os.tag == .macos) {
-        smoke_test.root_module.linkFramework("Metal", .{});
-        smoke_test.root_module.linkFramework("Foundation", .{});
-        smoke_test.root_module.linkFramework("QuartzCore", .{});
-        smoke_test.root_module.linkFramework("AppKit", .{});
+        // macOS Metal uses pure dynamic dispatch via dlopen/dlsym/libobjc at runtime.
+        // No compile-time framework stubs required, enabling clean cross-compilation from Linux/Windows hosts.
     } else if (target.result.os.tag == .windows) {
         smoke_test.root_module.linkSystemLibrary("d3d12", .{});
         smoke_test.root_module.linkSystemLibrary("dxgi", .{});
