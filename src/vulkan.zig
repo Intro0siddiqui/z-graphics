@@ -5066,7 +5066,7 @@ pub fn createPipelineFromShadersWithLayout(
     vertex_input_info.pVertexAttributeDescriptions = if (attr_count > 0) @ptrCast(&vk_attrs_buf) else null;
 
     const input_assembly = std.mem.zeroInit(c.VkPipelineInputAssemblyStateCreateInfo, .{ .sType = 20, .topology = c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, .primitiveRestartEnable = 0 });
-    const dynamic_states = [_]u32{ 9, 10 };
+    const dynamic_states = [_]u32{ c.VK_DYNAMIC_STATE_VIEWPORT, c.VK_DYNAMIC_STATE_SCISSOR };
     var dynamic_state_info = c.VkPipelineDynamicStateCreateInfo{
         .sType = 27,
         .dynamicStateCount = 2,
@@ -6434,7 +6434,7 @@ pub fn createStencilPipeline(surface: *VulkanSurface, desc: *const @import("lib.
     vertex_input_info.pVertexAttributeDescriptions = null;
 
     const input_assembly = std.mem.zeroInit(c.VkPipelineInputAssemblyStateCreateInfo, .{ .sType = 20, .topology = c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, .primitiveRestartEnable = 0 });
-    const dynamic_states = [_]u32{ 9, 10 };
+    const dynamic_states = [_]u32{ c.VK_DYNAMIC_STATE_VIEWPORT, c.VK_DYNAMIC_STATE_SCISSOR };
     var dynamic_state_info = c.VkPipelineDynamicStateCreateInfo{ .sType = 27, .dynamicStateCount = 2, .pDynamicStates = @as([*]const u32, @ptrCast(&dynamic_states)) };
     const viewport_state = std.mem.zeroInit(c.VkPipelineViewportStateCreateInfo, .{ .sType = 22, .viewportCount = 1, .scissorCount = 1 });
     const rasterizer = std.mem.zeroInit(c.VkPipelineRasterizationStateCreateInfo, .{ .sType = 23, .depthClampEnable = 0, .rasterizerDiscardEnable = 0, .polygonMode = c.VK_POLYGON_MODE_FILL, .lineWidth = 1, .cullMode = c.VK_CULL_MODE_NONE, .frontFace = c.VK_FRONT_FACE_CLOCKWISE, .depthBiasEnable = 0 });
