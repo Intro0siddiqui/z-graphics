@@ -3,11 +3,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 // Platform-specific backends
-const is_android = builtin.os.tag == .linux and builtin.abi.isAndroid();
-const is_desktop_linux = builtin.os.tag == .linux and !is_android;
-const desktop_vulkan = if (is_desktop_linux) @import("vulkan.zig") else struct {};
-const android_vulkan = if (is_android) @import("android_vulkan.zig") else struct {};
-const vulkan = if (is_android) android_vulkan else if (is_desktop_linux) desktop_vulkan else struct {};
+const vulkan = if (builtin.os.tag == .linux) @import("vulkan.zig") else struct {};
 const macos_metal = if (builtin.os.tag == .macos) @import("macos_metal.zig") else struct {};
 const windows_d3d12 = if (builtin.os.tag == .windows) @import("windows_d3d12.zig") else struct {};
 const compositor = @import("renderer.zig");
@@ -205,6 +201,10 @@ pub export fn ZG_CreateWindow(width: u32, height: u32) ?ZawraGraphicsHandle {
     if (builtin.os.tag == .macos) return @ptrCast(macos_metal.createWindow(width, height));
     if (builtin.os.tag == .windows) return @ptrCast(windows_d3d12.createWindow(width, height));
     return null;
+}
+
+pub export fn ZG_PollEvents(window: ?ZawraGraphicsHandle) void {
+    if (builtin.os.tag == .linux) vulkan.pollEvents(@ptrCast(@alignCast(window)));
 }
 
 pub const ZawraGraphicsTextureFormat = enum(u32) {
@@ -522,7 +522,7 @@ pub export fn ZG_CmdDrawInstanced(
     if (builtin.os.tag == .windows) windows_d3d12.cmdDraw(@ptrCast(@alignCast(cmd)), vertex_count, instance_count, first_vertex, first_instance);
 }
 
-pub export fn ZG_CreatePipelineWithLayout(
+pub export fn ZG_CreatePipelineWithLayoutDesc(
     handle: ?ZawraGraphicsHandle,
     vert: ?ZawraGraphicsShaderModule,
     frag: ?ZawraGraphicsShaderModule,
@@ -530,6 +530,7 @@ pub export fn ZG_CreatePipelineWithLayout(
     binding_count: u32,
     attributes: ?[*]const ZawraGraphicsVertexAttribute,
     attribute_count: u32,
+    desc: ?*const PipelineDesc,
 ) ?ZawraGraphicsPipeline {
     if (handle == null or vert == null or frag == null) return null;
     if (builtin.os.tag == .linux) {
@@ -541,10 +542,31 @@ pub export fn ZG_CreatePipelineWithLayout(
             @ptrCast(@alignCast(frag.?)),
             binding_slice,
             attr_slice,
-            null,
+            desc,
         ));
     }
     return null;
+}
+
+pub export fn ZG_CreatePipelineWithLayout(
+    handle: ?ZawraGraphicsHandle,
+    vert: ?ZawraGraphicsShaderModule,
+    frag: ?ZawraGraphicsShaderModule,
+    bindings: ?[*]const ZawraGraphicsVertexBinding,
+    binding_count: u32,
+    attributes: ?[*]const ZawraGraphicsVertexAttribute,
+    attribute_count: u32,
+) ?ZawraGraphicsPipeline {
+    return ZG_CreatePipelineWithLayoutDesc(
+        handle,
+        vert,
+        frag,
+        bindings,
+        binding_count,
+        attributes,
+        attribute_count,
+        null,
+    );
 }
 
 pub export fn ZG_CreateComputePipeline(
