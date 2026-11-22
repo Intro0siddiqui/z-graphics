@@ -2,6 +2,12 @@ const std = @import("std");
 const zgraphics = @import("lib.zig");
 const builtin = @import("builtin");
 
+const is_android = builtin.abi.isAndroid();
+const platform = if (is_android)
+    @import("platform/android.zig")
+else
+    @import("platform/linux_x11.zig");
+
 /// Upper bound for swapchain images. Drivers may report a minImageCount larger
 /// than this, in which case surface creation fails instead of overflowing the
 /// fixed image arrays.
@@ -55,6 +61,7 @@ const c = struct {
     pub const VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO = 14;
     pub const VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO = 15;
     pub const VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR = 1000004000;
+    pub const VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR = 1000008000;
     pub const VK_STRUCTURE_TYPE_PRESENT_INFO_KHR = 1000001001;
     pub const VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO = 1000071000;
     pub const VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO = 1000071002;
@@ -205,6 +212,13 @@ const c = struct {
         flags: u32 = 0,
         dpy: *anyopaque,
         window: usize,
+    };
+
+    pub const VkAndroidSurfaceCreateInfoKHR = extern struct {
+        sType: VkStructureType = VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR,
+        pNext: ?*const anyopaque = null,
+        flags: u32 = 0,
+        window: ?*anyopaque,
     };
 
     pub const VkPresentInfoKHR = extern struct {
