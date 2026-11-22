@@ -1419,8 +1419,7 @@ pub const VulkanSurface = struct {
     drm_modifier: u64 = c.DRM_FORMAT_MOD_LINEAR,
     format: c.VkFormat = c.VK_FORMAT_R8G8B8A8_UNORM,
     ycbcr_enabled: bool,
-    window: ?*anyopaque, // X11 Window
-    x_display: ?*Display, // X11 Display
+    window: ?*anyopaque,
     width: u32,
     height: u32,
     present_mode: u32 = 2, // VK_PRESENT_MODE_FIFO_KHR default
@@ -1440,87 +1439,9 @@ pub const VulkanSurface = struct {
     msaa_depth_view: c.VkImageView = null,
 };
 
-// --- X11 FFI ---
-const Display = anyopaque;
-const Window = usize;
-extern "X11" fn XOpenDisplay(display_name: ?[*:0]const u8) callconv(.c) ?*Display;
-extern "X11" fn XCloseDisplay(display: *Display) callconv(.c) i32;
-extern "X11" fn XCreateSimpleWindow(
-    display: *Display,
-    parent: Window,
-    x: i32,
-    y: i32,
-    width: u32,
-    height: u32,
-    border_width: u32,
-    border: usize,
-    background: usize,
-) callconv(.c) Window;
-extern "X11" fn XMapWindow(display: *Display, w: Window) callconv(.c) i32;
-extern "X11" fn XDefaultRootWindow(display: *Display) callconv(.c) Window;
-extern "X11" fn XStoreName(display: *Display, w: Window, name: [*:0]const u8) callconv(.c) i32;
-extern "X11" fn XFlush(display: *Display) callconv(.c) i32;
-extern "X11" fn XSelectInput(display: *Display, w: Window, event_mask: u32) callconv(.c) i32;
-extern "X11" fn XNextEvent(display: *Display, event_return: *XEvent) callconv(.c) i32;
-extern "X11" fn XPending(display: *Display) callconv(.c) i32;
-
-const XEvent = extern struct {
-    type: u32,
-    pad: [19 * @sizeOf(usize)]u8,
-};
-
-const StructureNotifyMask = 1 << 19;
-const MapNotify = 19;
-
-pub const X11WindowState = struct {
-    display: *Display,
-    window: Window,
-};
-
 pub fn createWindow(width: u32, height: u32) ?*anyopaque {
     if (builtin.os.tag != .linux) return null;
-    std.debug.print("[Z-GRAPHICS] createWindow: opening X11 display\n", .{});
-
-    const display = XOpenDisplay(null) orelse {
-        std.debug.print("[Z-GRAPHICS] createWindow: XOpenDisplay failed\n", .{});
-        return null;
-    };
-    std.debug.print("[Z-GRAPHICS] createWindow: display={any}, creating {}x{} window\n", .{ display, width, height });
-    const root = XDefaultRootWindow(display);
-    const window = XCreateSimpleWindow(display, root, 100, 100, width, height, 0, 0, 0);
-    _ = XStoreName(display, window, "Zawra Browser");
-
-    _ = XSelectInput(display, window, StructureNotifyMask);
-    _ = XMapWindow(display, window);
-    _ = XFlush(display);
-    std.debug.print("[Z-GRAPHICS] createWindow: mapped, waiting for MapNotify...\n", .{});
-
-    var event: XEvent = undefined;
-    var safety: u32 = 0;
-    while (safety < 100) : (safety += 1) {
-        if (XPending(display) > 0) {
-            _ = XNextEvent(display, &event);
-            if (event.type == MapNotify) {
-                std.debug.print("[Z-GRAPHICS] createWindow: got MapNotify after {} iterations\n", .{safety});
-                break;
-            }
-        } else {
-            const req = std.os.linux.timespec{ .sec = 0, .nsec = 10 * std.time.ns_per_ms };
-            _ = std.os.linux.nanosleep(&req, null);
-        }
-    }
-    if (safety >= 100) {
-        std.debug.print("[Z-GRAPHICS] createWindow: WARNING timed out waiting for MapNotify, proceeding anyway\n", .{});
-    }
-
-    const state = std.heap.page_allocator.create(X11WindowState) catch {
-        std.debug.print("[Z-GRAPHICS] createWindow: failed to allocate X11WindowState\n", .{});
-        _ = XCloseDisplay(display);
-        return null;
-    };
-    state.* = .{ .display = display, .window = window };
-    std.debug.print("[Z-GRAPHICS] createWindow: success, window={}\n", .{window});
-    return @ptrFromInt(@intFromPtr(state));
+    return platform.createWindow(width, height);
 }
 
 fn findMemoryType(physical_device: c.VkPhysicalDevice, type_filter: u32, properties: u32) ?u32 {
@@ -2040,11 +1961,11 @@ pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*VulkanSurfa
 
         const instance_extension_sets = [_][]const [*:0]const u8{
             // Preferred: headless + external memory capability queries.
-            &.{ "VK_KHR_surface", "VK_KHR_xlib_surface", "VK_EXT_headless_surface", "VK_KHR_external_memory_capabilities" },
+            &.{ "VK_KHR_surface", platform.surface_extension, "VK_EXT_headless_surface", "VK_KHR_external_memory_capabilities" },
             // Driver without VK_KHR_external_memory_capabilities.
-            &.{ "VK_KHR_surface", "VK_KHR_xlib_surface", "VK_EXT_headless_surface" },
+            &.{ "VK_KHR_surface", platform.surface_extension, "VK_EXT_headless_surface" },
             // Driver without VK_EXT_headless_surface.
-            &.{ "VK_KHR_surface", "VK_KHR_xlib_surface" },
+            &.{ "VK_KHR_surface", platform.surface_extension },
         };
 
         var instance: c.VkInstance = null;
@@ -2233,29 +2154,11 @@ pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*VulkanSurfa
         c.vkGetDeviceQueue(device, graphics_family.?, 0, &graphics_queue);
 
         var surface: c.VkSurfaceKHR = null;
-        var x_display: ?*Display = null;
         if (window) |w| {
-            const state = @as(*X11WindowState, @ptrCast(@alignCast(w)));
-            const x_window: usize = state.window;
-            x_display = state.display;
-            std.debug.print("[Z-GRAPHICS] createSurface: extracting X11WindowState: display={any}, window={}\n", .{ x_display, x_window });
-            const pfnCreateXlibSurfaceKHR = @as(?c.PFN_vkCreateXlibSurfaceKHR, @ptrCast(c.vkGetInstanceProcAddr(instance, "vkCreateXlibSurfaceKHR")));
-            if (pfnCreateXlibSurfaceKHR) |createXlib| {
-                if (x_display) |dpy| {
-                    const x_create_info = std.mem.zeroInit(c.VkXlibSurfaceCreateInfoKHR, .{
-                        .sType = c.VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR,
-                        .dpy = @as(*anyopaque, @ptrCast(dpy)),
-                        .window = x_window,
-                    });
-                    const result = createXlib(instance, &x_create_info, null, &surface);
-                    std.debug.print("[Z-GRAPHICS] createSurface: vkCreateXlibSurfaceKHR result={}\n", .{result});
-                } else {
-                    std.debug.print("[Z-GRAPHICS] createSurface: x_display is null, cannot create Vulkan surface\n", .{});
-                }
-            } else {
-                std.debug.print("[Z-GRAPHICS] createSurface: vkCreateXlibSurfaceKHR not found\n", .{});
+            const ok = platform.createVkSurface(instance, @ptrCast(&c.vkGetInstanceProcAddr), w, &surface);
+            if (!ok) {
+                std.debug.print("[Z-GRAPHICS] createSurface: platform.createVkSurface failed\n", .{});
             }
-            std.heap.page_allocator.destroy(state);
         } else {
             std.debug.print("[Z-GRAPHICS] createSurface: no window provided, headless mode\n", .{});
         }
@@ -2609,7 +2512,6 @@ pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*VulkanSurfa
             .format = c.VK_FORMAT_R8G8B8A8_UNORM,
             .ycbcr_enabled = ycbcr_enabled,
             .window = window,
-            .x_display = x_display,
             .width = surface_width,
             .height = surface_height,
             .descriptor_pool = descriptor_pool,
@@ -2647,7 +2549,7 @@ pub fn destroySurface(surface: *VulkanSurface) void {
     if (surface.msaa_color_view != null) c.vkDestroyImageView(surface.device, surface.msaa_color_view, null);
     if (surface.msaa_color_image != null) c.vkDestroyImage(surface.device, surface.msaa_color_image, null);
     if (surface.msaa_color_memory != null) c.vkFreeMemory(surface.device, surface.msaa_color_memory, null);
-    if (surface.x_display) |dpy| _ = XCloseDisplay(dpy);
+    platform.destroyWindow(surface.window);
     if (surface.framebuffer != null) c.vkDestroyFramebuffer(surface.device, surface.framebuffer, null);
     if (surface.render_pass != null) c.vkDestroyRenderPass(surface.device, surface.render_pass, null);
     if (surface.image_view != null) c.vkDestroyImageView(surface.device, surface.image_view, null);
