@@ -69,3 +69,11 @@ pub fn dispatchEvents(window: ?*anyopaque) void {
         }
     }
 }
+
+pub fn setPointerCallback(cb: anytype) void {
+    wayland.setPointerCallback(cb);
+}
+
+pub fn setKeyboardCallback(cb: anytype) void {
+    wayland.setKeyboardCallback(cb);
+}

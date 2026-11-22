@@ -47,54 +47,16 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    // Shader compilation step (Vulkan/SPIR-V from GLSL)
+    // Precompiled SPIR-V shaders (self-contained, no external glslangValidator required at build time)
     const shaders_dir = b.path("shaders");
-    const basic_vert_glsl = shaders_dir.path(b, "basic.vert");
-    const basic_frag_glsl = shaders_dir.path(b, "basic.frag");
-    const instanced_vert_glsl = shaders_dir.path(b, "instanced.vert");
-    const compute_comp_glsl = shaders_dir.path(b, "compute.comp");
-
-    const shader_test_frag_glsl = shaders_dir.path(b, "shader_test.frag");
-
-    const compile_vert = b.addSystemCommand(&.{ "glslangValidator", "-V", "--target-env", "vulkan1.0", "-o" });
-    const vert_spirv = compile_vert.addOutputFileArg("basic.vert.spv");
-    compile_vert.addFileArg(basic_vert_glsl);
-
-    const compile_frag = b.addSystemCommand(&.{ "glslangValidator", "-V", "--target-env", "vulkan1.0", "-o" });
-    const frag_spirv = compile_frag.addOutputFileArg("basic.frag.spv");
-    compile_frag.addFileArg(basic_frag_glsl);
-
-    const compile_shader_test = b.addSystemCommand(&.{ "glslangValidator", "-V", "--target-env", "vulkan1.0", "-o" });
-    const shader_test_spirv = compile_shader_test.addOutputFileArg("shader_test.frag.spv");
-    compile_shader_test.addFileArg(shader_test_frag_glsl);
-
-    const compile_instanced_vert = b.addSystemCommand(&.{ "glslangValidator", "-V", "--target-env", "vulkan1.0", "-o" });
-    const instanced_vert_spirv = compile_instanced_vert.addOutputFileArg("instanced.vert.spv");
-    compile_instanced_vert.addFileArg(instanced_vert_glsl);
-
-    const compile_compute = b.addSystemCommand(&.{ "glslangValidator", "-V", "--target-env", "vulkan1.0", "-o" });
-    const compute_spirv = compile_compute.addOutputFileArg("compute.comp.spv");
-    compile_compute.addFileArg(compute_comp_glsl);
-
-    const ui_sdf_vert_glsl = shaders_dir.path(b, "ui_sdf.vert");
-    const ui_sdf_frag_glsl = shaders_dir.path(b, "ui_sdf.frag");
-
-    const compile_ui_sdf_vert = b.addSystemCommand(&.{ "glslangValidator", "-V", "--target-env", "vulkan1.0", "-o" });
-    const ui_sdf_vert_spirv = compile_ui_sdf_vert.addOutputFileArg("ui_sdf.vert.spv");
-    compile_ui_sdf_vert.addFileArg(ui_sdf_vert_glsl);
-
-    const compile_ui_sdf_frag = b.addSystemCommand(&.{ "glslangValidator", "-V", "--target-env", "vulkan1.0", "-o" });
-    const ui_sdf_frag_spirv = compile_ui_sdf_frag.addOutputFileArg("ui_sdf.frag.spv");
-    compile_ui_sdf_frag.addFileArg(ui_sdf_frag_glsl);
-
     const shader_gen = b.addWriteFiles();
-    _ = shader_gen.addCopyFile(vert_spirv, "basic.vert.spv");
-    _ = shader_gen.addCopyFile(frag_spirv, "basic.frag.spv");
-    _ = shader_gen.addCopyFile(shader_test_spirv, "shader_test.frag.spv");
-    _ = shader_gen.addCopyFile(instanced_vert_spirv, "instanced.vert.spv");
-    _ = shader_gen.addCopyFile(compute_spirv, "compute.comp.spv");
-    _ = shader_gen.addCopyFile(ui_sdf_vert_spirv, "ui_sdf.vert.spv");
-    _ = shader_gen.addCopyFile(ui_sdf_frag_spirv, "ui_sdf.frag.spv");
+    _ = shader_gen.addCopyFile(shaders_dir.path(b, "basic.vert.spv"), "basic.vert.spv");
+    _ = shader_gen.addCopyFile(shaders_dir.path(b, "basic.frag.spv"), "basic.frag.spv");
+    _ = shader_gen.addCopyFile(shaders_dir.path(b, "shader_test.frag.spv"), "shader_test.frag.spv");
+    _ = shader_gen.addCopyFile(shaders_dir.path(b, "instanced.vert.spv"), "instanced.vert.spv");
+    _ = shader_gen.addCopyFile(shaders_dir.path(b, "compute.comp.spv"), "compute.comp.spv");
+    _ = shader_gen.addCopyFile(shaders_dir.path(b, "ui_sdf.vert.spv"), "ui_sdf.vert.spv");
+    _ = shader_gen.addCopyFile(shaders_dir.path(b, "ui_sdf.frag.spv"), "ui_sdf.frag.spv");
     const shader_zig = shader_gen.add("shaders.zig",
         \\pub const vert = @embedFile("basic.vert.spv");
         \\pub const frag = @embedFile("basic.frag.spv");

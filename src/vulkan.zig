@@ -1450,6 +1450,14 @@ pub fn pollEvents(window: ?*anyopaque) void {
     platform.dispatchEvents(window);
 }
 
+pub fn setPointerCallback(cb: anytype) void {
+    if (builtin.os.tag == .linux) platform.setPointerCallback(cb);
+}
+
+pub fn setKeyboardCallback(cb: anytype) void {
+    if (builtin.os.tag == .linux) platform.setKeyboardCallback(cb);
+}
+
 fn findMemoryType(physical_device: c.VkPhysicalDevice, type_filter: u32, properties: u32) ?u32 {
     var mem_properties: c.VkPhysicalDeviceMemoryProperties = undefined;
     c.vkGetPhysicalDeviceMemoryProperties(physical_device, &mem_properties);

@@ -107,6 +107,17 @@ pub fn createWindow(width: u32, height: u32) ?*anyopaque {
     if (builtin.os.tag != .macos) return null;
     if (!initDynamicLibraries()) return null;
 
+    // Ensure NSApplication is initialized and activated
+    const NSApplication = getClass("NSApplication");
+    if (NSApplication) |app_cls| {
+        const app = msgSend(app_cls, sel("sharedApplication"), .{});
+        if (app) |a| {
+            // NSApplicationActivationPolicyRegular = 0
+            _ = msgSend(a, sel("setActivationPolicy:"), .{@as(isize, 0)});
+            _ = msgSend(a, sel("finishLaunching"), .{});
+        }
+    }
+
     const NSWindow = getClass("NSWindow") orelse return null;
     const alloc = sel("alloc");
     const init = sel("initWithContentRect:styleMask:backing:defer:");
@@ -116,8 +127,8 @@ pub fn createWindow(width: u32, height: u32) ?*anyopaque {
     const stringWithUTF8String = sel("stringWithUTF8String:");
 
     const rect = [4]f64{ 100, 100, @floatFromInt(width), @floatFromInt(height) };
-    const styleMask: usize = 1 | 2 | 4;
-    const backing: usize = 2;
+    const styleMask: usize = 1 | 2 | 4 | 8; // Titled, Closable, Miniaturizable, Resizable
+    const backing: usize = 2; // NSBackingStoreBuffered
 
     const window_alloc = msgSend(NSWindow, alloc, .{});
     const window = msgSend(window_alloc, init, .{ &rect, styleMask, backing, @as(u8, 0) });
@@ -127,6 +138,36 @@ pub fn createWindow(width: u32, height: u32) ?*anyopaque {
     _ = msgSend(window, makeKeyAndOrderFront, .{@as(?*anyopaque, null)});
 
     return window;
+}
+
+pub fn destroyWindow(window: ?*anyopaque) void {
+    if (builtin.os.tag != .macos) return;
+    if (window) |win| {
+        _ = msgSend(win, sel("close"), .{});
+    }
+}
+
+pub fn dispatchEvents(window: ?*anyopaque) void {
+    _ = window;
+    if (builtin.os.tag != .macos) return;
+    if (!initDynamicLibraries()) return;
+
+    const NSApplication = getClass("NSApplication") orelse return;
+    const app = msgSend(NSApplication, sel("sharedApplication"), .{}) orelse return;
+    const NSString = getClass("NSString") orelse return;
+    const mode = msgSend(NSString, sel("stringWithUTF8String:"), .{@as([*:0]const u8, "kCFRunLoopDefaultMode")});
+
+    const nextEvent = sel("nextEventMatchingMask:untilDate:inMode:dequeue:");
+    const sendEvent = sel("sendEvent:");
+    const updateWindows = sel("updateWindows");
+
+    const mask: usize = std.math.maxInt(usize); // NSEventMaskAny
+    while (true) {
+        const event = msgSend(app, nextEvent, .{ mask, @as(?*anyopaque, null), mode, @as(u8, 1) });
+        if (event == null) break;
+        _ = msgSend(app, sendEvent, .{event});
+    }
+    _ = msgSend(app, updateWindows, .{});
 }
 
 pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*MetalSurface {
@@ -219,6 +260,22 @@ pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*MetalSurfac
 
         const setPixelFormat = sel("setPixelFormat:");
         _ = msgSend(layer, setPixelFormat, .{pixelFormat});
+
+        // Set backing scale factor for Retina displays
+        const backingScaleFactor = sel("backingScaleFactor");
+        var scale: f64 = 1.0;
+        if (p_objc_msgSend) |f| {
+            const scale_call: *const fn (?*anyopaque, ?*anyopaque) callconv(.c) f64 = @ptrCast(f);
+            scale = scale_call(win, backingScaleFactor);
+            if (scale < 1.0) scale = 1.0;
+        }
+
+        const setContentsScale = sel("setContentsScale:");
+        _ = msgSend(layer, setContentsScale, .{scale});
+
+        const setDrawableSize = sel("setDrawableSize:");
+        const scaled_size = [2]f64{ @as(f64, @floatFromInt(width)) * scale, @as(f64, @floatFromInt(height)) * scale };
+        _ = msgSend(layer, setDrawableSize, .{&scaled_size});
 
         const contentView = msgSend(win, sel("contentView"), .{});
         const setLayer = sel("setLayer:");

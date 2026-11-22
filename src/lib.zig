@@ -106,6 +106,10 @@ pub export fn ZG_ExportSurfaceFD(handle: ?ZawraGraphicsHandle) i32 {
     return -1;
 }
 
+pub export fn ZawraGraphics_ExportSurfaceFD(handle: ?ZawraGraphicsHandle) i32 {
+    return ZG_ExportSurfaceFD(handle);
+}
+
 pub export fn ZG_ExportSurfaceIOSurface(handle: ?ZawraGraphicsHandle) ?*anyopaque {
     if (handle == null) return null;
     if (builtin.os.tag == .macos) return macos_metal.exportSurfaceIOSurface(@as(*macos_metal.MetalSurface, @ptrCast(@alignCast(handle.?))));
@@ -203,8 +207,18 @@ pub export fn ZG_CreateWindow(width: u32, height: u32) ?ZawraGraphicsHandle {
     return null;
 }
 
+pub export fn ZG_DestroyWindow(window: ?ZawraGraphicsHandle) void {
+    if (window == null) return;
+    if (builtin.os.tag == .linux) {
+        const platform = @import("platform/linux.zig");
+        platform.destroyWindow(@ptrCast(@alignCast(window)));
+    }
+    if (builtin.os.tag == .macos) macos_metal.destroyWindow(@ptrCast(window));
+}
+
 pub export fn ZG_PollEvents(window: ?ZawraGraphicsHandle) void {
     if (builtin.os.tag == .linux) vulkan.pollEvents(@ptrCast(@alignCast(window)));
+    if (builtin.os.tag == .macos) macos_metal.dispatchEvents(@ptrCast(window));
 }
 
 pub const ZawraGraphicsTextureFormat = enum(u32) {
@@ -337,6 +351,124 @@ pub export fn ZG_ImportTextureDMABuf(
     if (handle == null) return null;
     if (builtin.os.tag == .linux) return @ptrCast(vulkan.importTextureDMABuf(@ptrCast(@alignCast(handle.?)), fd, info, desc));
     return null;
+}
+
+pub var global_wpe_texture: ?ZawraGraphicsTexture = null;
+pub var global_wpe_texture_setter: ?*const fn (?ZawraGraphicsTexture) callconv(.c) void = null;
+
+pub export fn ZG_RegisterWpeTextureSetter(cb: ?*const fn (?ZawraGraphicsTexture) callconv(.c) void) void {
+    global_wpe_texture_setter = cb;
+}
+
+pub export fn ZG_GetWpeTexture() ?ZawraGraphicsTexture {
+    return global_wpe_texture;
+}
+
+pub export fn ZG_SetWpeTexture(texture: ?ZawraGraphicsTexture) void {
+    global_wpe_texture = texture;
+    if (global_wpe_texture_setter) |setter| {
+        setter(texture);
+    }
+}
+
+pub export fn ZG_BindWpeDMABuf(surface: ?ZawraGraphicsHandle, fd: i32, width: u32, height: u32) bool {
+    if (surface == null or fd < 0 or width == 0 or height == 0) return false;
+
+    const info = ZawraGraphicsDMABufInfo{
+        .fd = fd,
+        .width = width,
+        .height = height,
+        .stride = width * 4,
+        .offset = 0,
+        .drm_format = 0,
+        .drm_modifier = 0,
+    };
+    const desc = ZawraGraphicsTextureDesc{
+        .format = .R8G8B8A8_Unorm,
+        .width = width,
+        .height = height,
+        .external_handle = null,
+    };
+
+    const texture = ZG_ImportTextureDMABuf(surface, fd, &info, &desc);
+    if (texture == null) {
+        return false;
+    }
+
+    ZG_SetWpeTexture(texture);
+    return true;
+}
+
+pub export fn ZawraGraphics_BindWpeDMABuf(surface: ?ZawraGraphicsHandle, fd: i32, width: u32, height: u32) bool {
+    return ZG_BindWpeDMABuf(surface, fd, width, height);
+}
+
+// ── WebKit Navigation & Input FFI Hooks ──────────────────────────────────────────
+
+pub var global_load_url_handler: ?*const fn (url_ptr: [*]const u8, url_len: usize) callconv(.c) void = null;
+
+pub export fn Zawra_SetLoadURLCallback(cb: ?*const fn (url_ptr: [*]const u8, url_len: usize) callconv(.c) void) void {
+    global_load_url_handler = cb;
+}
+
+pub export fn Zawra_LoadURL(url_ptr: [*]const u8, url_len: usize) void {
+    if (global_load_url_handler) |cb| {
+        cb(url_ptr, url_len);
+    } else {
+        std.debug.print("[Z-GRAPHICS] Zawra_LoadURL: {s}\n", .{url_ptr[0..url_len]});
+    }
+}
+
+pub var global_wpe_pointer_handler: ?*const fn (u32, f64, f64, u32, u32) callconv(.c) void = null;
+pub var global_wpe_keyboard_handler: ?*const fn (u32, u32, u32) callconv(.c) void = null;
+
+pub export fn Zawra_SetPointerEventHandler(cb: ?*const fn (u32, f64, f64, u32, u32) callconv(.c) void) void {
+    global_wpe_pointer_handler = cb;
+}
+
+pub export fn Zawra_SetKeyboardEventHandler(cb: ?*const fn (u32, u32, u32) callconv(.c) void) void {
+    global_wpe_keyboard_handler = cb;
+}
+
+pub export fn wpe_view_event_pointer(event_type: u32, local_x: f64, local_y: f64, button: u32, state: u32) void {
+    if (global_wpe_pointer_handler) |cb| {
+        cb(event_type, local_x, local_y, button, state);
+    }
+}
+
+pub export fn wpe_view_event_keyboard(key: u32, state: u32, modifiers: u32) void {
+    if (global_wpe_keyboard_handler) |cb| {
+        cb(key, state, modifiers);
+    }
+}
+
+// ── BrowserDB History Integration Hooks ──────────────────────────────────────────
+
+pub var global_get_recent_history_fn: ?*const fn (limit: u32, out_json_buf: [*]u8, out_max_len: usize) callconv(.c) usize = null;
+
+pub export fn Zawra_SetGetRecentHistoryFn(cb: ?*const fn (limit: u32, out_json_buf: [*]u8, out_max_len: usize) callconv(.c) usize) void {
+    global_get_recent_history_fn = cb;
+}
+
+pub export fn Zawra_GetRecentHistory(limit: u32, out_json_buf: [*]u8, out_max_len: usize) usize {
+    if (global_get_recent_history_fn) |cb| {
+        return cb(limit, out_json_buf, out_max_len);
+    }
+    return 0;
+}
+
+// ── Wayland Event Routing ───────────────────────────────────────────────────────
+
+pub export fn ZG_SetPointerCallback(cb: ?*const fn (u32, f32, f32, u32, u32) callconv(.c) void) void {
+    if (builtin.os.tag == .linux) {
+        vulkan.setPointerCallback(cb);
+    }
+}
+
+pub export fn ZG_SetKeyboardCallback(cb: ?*const fn (u32, u32, bool) callconv(.c) void) void {
+    if (builtin.os.tag == .linux) {
+        vulkan.setKeyboardCallback(cb);
+    }
 }
 
 pub export fn ZG_CreateSwapchain(handle: ZawraGraphicsHandle) bool {
