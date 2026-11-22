@@ -1598,11 +1598,36 @@ fn submitAndWait(surface: *VulkanSurface, cmd: c.VkCommandBuffer) bool {
     return wait_result == c.VK_SUCCESS;
 }
 
+/// Consumes a pending image-available semaphore signal.
+///
+/// vkAcquireNextImageKHR signals the semaphore even when it returns
+/// VK_SUBOPTIMAL_KHR. Since a binary semaphore must be unsignaled before it can
+/// be passed to another acquire, an empty submit waits on it to clear it.
+fn consumeAcquireSemaphore(surface: *VulkanSurface) void {
+    if (surface.swapchain == null or surface.image_available_semaphore == null) return;
+    waitFenceIfPending(surface);
+    _ = c.vkResetFences(surface.device, 1, @as([*]const c.VkFence, @ptrCast(&surface.fence)));
+
+    const wait_stage: u32 = c.VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+    const semaphore = surface.image_available_semaphore;
+    const no_cmds = [_]c.VkCommandBuffer{null};
+    const submit_info = std.mem.zeroInit(c.VkSubmitInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .waitSemaphoreCount = 1,
+        .pWaitSemaphores = @as(?*const anyopaque, @ptrCast(&semaphore)),
+        .pWaitDstStageMask = @as(?*const u32, @ptrCast(&wait_stage)),
+        .commandBufferCount = 0,
+        .pCommandBuffers = @as([*]const c.VkCommandBuffer, @ptrCast(&no_cmds)),
+    });
+    if (c.vkQueueSubmit(surface.graphics_queue, 1, @as([*]const c.VkSubmitInfo, @ptrCast(&submit_info)), surface.fence) == c.VK_SUCCESS) {
+        _ = c.vkWaitForFences(surface.device, 1, @as([*]const c.VkFence, @ptrCast(&surface.fence)), c.VK_TRUE, std.math.maxInt(u64));
+    }
+}
+
 const SurfaceFormatChoice = struct {
     format: c.VkFormat,
     color_space: u32,
 };
-
 /// Picks a usable format/color-space pair instead of blindly assuming
 /// VK_FORMAT_B8G8R8A8_UNORM is present.
 fn chooseSurfaceFormat(physical_device: c.VkPhysicalDevice, surface: c.VkSurfaceKHR) ?SurfaceFormatChoice {
