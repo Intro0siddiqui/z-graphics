@@ -774,6 +774,7 @@ const c = struct {
     };
 
     pub const PFN_vkCreateXlibSurfaceKHR = *const fn (VkInstance, *const VkXlibSurfaceCreateInfoKHR, ?*const anyopaque, *VkSurfaceKHR) callconv(.c) VkResult;
+    pub const PFN_vkCreateAndroidSurfaceKHR = *const fn (VkInstance, *const VkAndroidSurfaceCreateInfoKHR, ?*const anyopaque, *VkSurfaceKHR) callconv(.c) VkResult;
     pub const PFN_vkGetMemoryFdKHR = *const fn (VkDevice, ?*const anyopaque, *i32) callconv(.c) VkResult;
     pub const PFN_vkImportMemoryFdKHR = *const fn (VkDevice, *const VkImportMemoryFdInfoKHR, *VkDeviceMemory) callconv(.c) VkResult;
     pub const PFN_vkGetMemoryFdPropertiesKHR = *const fn (VkDevice, u32, i32, *VkMemoryFdPropertiesKHR) callconv(.c) VkResult;
