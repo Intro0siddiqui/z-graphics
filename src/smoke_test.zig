@@ -223,7 +223,7 @@ fn testExportSurfaceDMABuf(surface: zgraphics.ZawraGraphicsHandle) void {
                 .height = offscreen_info.height,
                 .external_handle = null,
             };
-            const imported = zgraphics.ZG_ImportTextureFD(off, offscreen_info.fd, &import_desc);
+            const imported = zgraphics.ZG_ImportTextureDMABuf(off, offscreen_info.fd, &offscreen_info, &import_desc);
             if (imported) |tex| {
                 std.debug.print("testExportSurfaceDMABuf: PASS - imported DMA-BUF texture back: {any}\n", .{tex});
                 zgraphics.ZG_DestroyTexture(off, tex);

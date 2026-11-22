@@ -757,7 +757,6 @@ const c = struct {
         sType: VkStructureType = VK_STRUCTURE_TYPE_MEMORY_FD_PROPERTIES_KHR,
         pNext: ?*const anyopaque = null,
         memoryTypeBits: u32,
-        fd: i32,
     };
 
     pub const PFN_vkCreateXlibSurfaceKHR = *const fn (VkInstance, *const VkXlibSurfaceCreateInfoKHR, ?*const anyopaque, *VkSurfaceKHR) callconv(.c) VkResult;
@@ -3066,6 +3065,9 @@ pub fn beginCommandBuffer(surface: *VulkanSurface) ?*VulkanCommandBuffer {
         var acquire_result = c.vkAcquireNextImageKHR(surface.device, surface.swapchain, std.math.maxInt(u64), surface.image_available_semaphore, null, &surface.image_index);
         if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] vkAcquireNextImageKHR result={} image_index={}\n", .{ acquire_result, surface.image_index });
         if (acquire_result == 1000001003 or acquire_result == -1000001000) { // VK_SUBOPTIMAL_KHR or VK_ERROR_OUT_OF_DATE_KHR
+            // On VK_SUBOPTIMAL_KHR the semaphore *was* signaled, and a binary
+            // semaphore cannot be passed to vkAcquireNextImageKHR twice.
+            if (acquire_result == 1000001003) consumeAcquireSemaphore(surface);
             recreateSwapchain(surface, surface.width, surface.height);
             acquire_result = c.vkAcquireNextImageKHR(surface.device, surface.swapchain, std.math.maxInt(u64), surface.image_available_semaphore, null, &surface.image_index);
             if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] vkAcquireNextImageKHR retry result={} image_index={}\n", .{ acquire_result, surface.image_index });
@@ -4576,132 +4578,81 @@ pub fn createTexture(surface: *VulkanSurface, desc: *const zgraphics.ZawraGraphi
     return tex;
 }
 
-pub fn importTextureFD(surface: *VulkanSurface, fd: i32, desc: *const zgraphics.ZawraGraphicsTextureDesc) ?*VulkanTexture {
-    if (builtin.os.tag != .linux) return null;
-    if (fd < 0) {
-        if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] importTextureFD: invalid fd={d}\n", .{fd});
-        return null;
-    }
-    if (!surface.external_memory_enabled) {
-        if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] importTextureFD: external memory not enabled\n", .{});
-        return null;
-    }
-
-    var external_image_info = std.mem.zeroInit(c.VkExternalMemoryImageCreateInfo, .{
-        .sType = c.VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
-        .handleTypes = c.VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
-    });
-
-    var image_info = std.mem.zeroInit(c.VkImageCreateInfo, .{
-        .sType = c.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-        .pNext = &external_image_info,
-        .imageType = c.VK_IMAGE_TYPE_2D,
-        .extent = .{ .width = desc.width, .height = desc.height, .depth = 1 },
-        .mipLevels = 1,
-        .arrayLayers = 1,
-        .format = c.VK_FORMAT_R8G8B8A8_UNORM,
-        .tiling = c.VK_IMAGE_TILING_OPTIMAL,
-        .initialLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
-        .usage = c.VK_IMAGE_USAGE_TRANSFER_DST_BIT | c.VK_IMAGE_USAGE_SAMPLED_BIT,
-        .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
-        .samples = c.VK_SAMPLE_COUNT_1_BIT,
-    });
-
-    var image: c.VkImage = null;
-    if (c.vkCreateImage(surface.device, &image_info, null, &image) != c.VK_SUCCESS) {
-        // Fallback: try VK_IMAGE_TILING_LINEAR for DMA_BUF_BIT_EXT
-        image_info.tiling = c.VK_IMAGE_TILING_LINEAR;
-        if (c.vkCreateImage(surface.device, &image_info, null, &image) != c.VK_SUCCESS) {
-            // Fallback: try OPAQUE_FD_BIT with optimal tiling
-            external_image_info.handleTypes = c.VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
-            image_info.tiling = c.VK_IMAGE_TILING_OPTIMAL;
-            if (c.vkCreateImage(surface.device, &image_info, null, &image) != c.VK_SUCCESS) {
-                if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] importTextureFD: vkCreateImage failed\n", .{});
-                return null;
-            }
-        }
-    }
-
-    var mem_reqs: c.VkMemoryRequirements = undefined;
-    c.vkGetImageMemoryRequirements(surface.device, image, &mem_reqs);
-
-    var fd_props = std.mem.zeroInit(c.VkMemoryFdPropertiesKHR, .{
-        .sType = c.VK_STRUCTURE_TYPE_MEMORY_FD_PROPERTIES_KHR,
-        .memoryTypeBits = 0,
-        .fd = fd,
-    });
-
-    const pfnGetMemoryFdProperties = @as(?c.PFN_vkGetMemoryFdPropertiesKHR, @ptrCast(c.vkGetDeviceProcAddr(surface.device, "vkGetMemoryFdPropertiesKHR")));
-    if (pfnGetMemoryFdProperties == null) {
-        if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] importTextureFD: vkGetMemoryFdPropertiesKHR not found\n", .{});
-        c.vkDestroyImage(surface.device, image, null);
-        return null;
-    }
-
-    var chosen_handle_type = external_image_info.handleTypes;
-    var res = pfnGetMemoryFdProperties.?(surface.device, chosen_handle_type, fd, &fd_props);
-    if (res != c.VK_SUCCESS or fd_props.memoryTypeBits == 0) {
-        const alt_handle_type = if (chosen_handle_type == c.VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT)
-            c.VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
-        else
-            c.VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT;
-        res = pfnGetMemoryFdProperties.?(surface.device, alt_handle_type, fd, &fd_props);
-        if (res == c.VK_SUCCESS and fd_props.memoryTypeBits != 0) {
-            chosen_handle_type = alt_handle_type;
-        }
-    }
-
-    var mem_type_index: ?u32 = null;
-    for (0..32) |i| {
-        if ((fd_props.memoryTypeBits & (@as(u32, 1) << @intCast(i))) != 0) {
-            var mem_props: c.VkPhysicalDeviceMemoryProperties = undefined;
-            c.vkGetPhysicalDeviceMemoryProperties(surface.physical_device, &mem_props);
-            if (i < mem_props.memoryTypeCount) {
-                mem_type_index = @intCast(i);
-                break;
-            }
-        }
-    }
-    const memory_type_index = mem_type_index orelse {
-        if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] importTextureFD: no compatible memory type found\n", .{});
-        c.vkDestroyImage(surface.device, image, null);
-        return null;
+/// Maps a DRM FourCC format to the Vulkan format used for the imported image.
+fn drmFormatToVk(drm_format: u32) c.VkFormat {
+    return switch (drm_format) {
+        c.DRM_FORMAT_XRGB8888 => c.VK_FORMAT_B8G8R8A8_UNORM,
+        c.DRM_FORMAT_XBGR8888 => c.VK_FORMAT_R8G8B8A8_UNORM,
+        c.DRM_FORMAT_ARGB8888 => c.VK_FORMAT_B8G8R8A8_UNORM,
+        c.DRM_FORMAT_ABGR8888 => c.VK_FORMAT_R8G8B8A8_UNORM,
+        else => c.VK_FORMAT_R8G8B8A8_UNORM,
     };
+}
 
-    var import_fd_info = std.mem.zeroInit(c.VkImportMemoryFdInfoKHR, .{
-        .sType = c.VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR,
-        .handleType = chosen_handle_type,
-        .fd = fd,
-    });
-
-    var alloc_info = std.mem.zeroInit(c.VkMemoryAllocateInfo, .{
-        .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-        .pNext = &import_fd_info,
-        .allocationSize = mem_reqs.size,
-        .memoryTypeIndex = memory_type_index,
-    });
-
-    var memory: c.VkDeviceMemory = null;
-    if (c.vkAllocateMemory(surface.device, &alloc_info, null, &memory) != c.VK_SUCCESS) {
-        if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] importTextureFD: vkAllocateMemory failed\n", .{});
-        c.vkDestroyImage(surface.device, image, null);
-        return null;
+/// Picks the first memory type reported as compatible with the imported fd.
+fn findImportedMemoryType(surface: *VulkanSurface, fd_props: c.VkMemoryFdPropertiesKHR) ?u32 {
+    if (fd_props.memoryTypeBits == 0) return null;
+    var mem_props: c.VkPhysicalDeviceMemoryProperties = undefined;
+    c.vkGetPhysicalDeviceMemoryProperties(surface.physical_device, &mem_props);
+    var index: u32 = 0;
+    while (index < mem_props.memoryTypeCount) : (index += 1) {
+        if (fd_props.memoryTypeBits & (@as(u32, 1) << @intCast(index)) != 0) return index;
     }
-    if (c.vkBindImageMemory(surface.device, image, memory, 0) != c.VK_SUCCESS) {
-        if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] importTextureFD: vkBindImageMemory failed\n", .{});
-        c.vkFreeMemory(surface.device, memory, null);
-        c.vkDestroyImage(surface.device, image, null);
-        return null;
-    }
+    return null;
+}
 
+fn queryFdMemoryTypes(surface: *VulkanSurface, fd: i32, handle_type: u32) ?c.VkMemoryFdPropertiesKHR {
+    const pfn = @as(?c.PFN_vkGetMemoryFdPropertiesKHR, @ptrCast(c.vkGetDeviceProcAddr(surface.device, "vkGetMemoryFdPropertiesKHR"))) orelse return null;
+    var props = std.mem.zeroInit(c.VkMemoryFdPropertiesKHR, .{});
+    if (pfn(surface.device, handle_type, fd, &props) != c.VK_SUCCESS) return null;
+    if (props.memoryTypeBits == 0) return null;
+    return props;
+}
+
+/// Brings an imported image into VK_IMAGE_LAYOUT_GENERAL so the sampler can
+/// read it. The contents are preserved (old layout GENERAL, not UNDEFINED).
+fn transitionImportedImage(surface: *VulkanSurface, image: c.VkImage) bool {
+    if (surface.transfer_pool == null or surface.transfer_cmd == null) return false;
+    waitFenceIfPending(surface);
+    _ = c.vkResetCommandPool(surface.device, surface.transfer_pool, 0);
+
+    const begin_info = std.mem.zeroInit(c.VkCommandBufferBeginInfo, .{ .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, .flags = 1 });
+    if (c.vkBeginCommandBuffer(surface.transfer_cmd, &begin_info) != c.VK_SUCCESS) return false;
+
+    var barrier: c.VkImageMemoryBarrier = .{
+        .sType = 45,
+        .srcAccessMask = 0,
+        .dstAccessMask = c.VK_ACCESS_SHADER_READ_BIT,
+        .oldLayout = c.VK_IMAGE_LAYOUT_GENERAL,
+        .newLayout = c.VK_IMAGE_LAYOUT_GENERAL,
+        .srcQueueFamilyIndex = c.VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = c.VK_QUEUE_FAMILY_IGNORED,
+        .image = image,
+        .subresourceRange = .{ .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1 },
+    };
+    c.vkCmdPipelineBarrier(surface.transfer_cmd, c.VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, c.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, null, 0, null, 1, @ptrCast(&barrier));
+    _ = c.vkEndCommandBuffer(surface.transfer_cmd);
+    return submitAndWait(surface, surface.transfer_cmd);
+}
+
+/// Builds the texture object (view, sampler, descriptor set) around an image
+/// whose memory has already been imported.
+fn finishImportedTexture(
+    surface: *VulkanSurface,
+    image: c.VkImage,
+    memory: c.VkDeviceMemory,
+    width: u32,
+    height: u32,
+    vk_format: c.VkFormat,
+    desc: *const zgraphics.ZawraGraphicsTextureDesc,
+) ?*VulkanTexture {
     const view_info = std.mem.zeroInit(c.VkImageViewCreateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
         .image = image,
         .viewType = c.VK_IMAGE_VIEW_TYPE_2D,
-        .format = c.VK_FORMAT_R8G8B8A8_UNORM,
+        .format = vk_format,
         .subresourceRange = .{ .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1 },
     });
-
     var view: c.VkImageView = null;
     if (c.vkCreateImageView(surface.device, &view_info, null, &view) != c.VK_SUCCESS) {
         c.vkFreeMemory(surface.device, memory, null);
@@ -4730,14 +4681,230 @@ pub fn importTextureFD(surface: *VulkanSurface, fd: i32, desc: *const zgraphics.
         return null;
     }
 
-    const tex = std.heap.page_allocator.create(VulkanTexture) catch return null;
-    tex.* = .{ .image = image, .memory = memory, .view = view, .width = desc.width, .height = desc.height, .sampler = sampler, .descriptor_set = null, .ycbcr_conversion = null, .format = desc.format };
+    const tex = std.heap.page_allocator.create(VulkanTexture) catch {
+        c.vkDestroySampler(surface.device, sampler, null);
+        c.vkDestroyImageView(surface.device, view, null);
+        c.vkFreeMemory(surface.device, memory, null);
+        c.vkDestroyImage(surface.device, image, null);
+        return null;
+    };
+    tex.* = .{ .image = image, .memory = memory, .view = view, .width = width, .height = height, .sampler = sampler, .descriptor_set = null, .ycbcr_conversion = null, .format = desc.format };
 
     if (surface.descriptor_set_layout != null and surface.descriptor_pool != null) {
         tex.descriptor_set = allocateDescriptorSet(surface, sampler, view) orelse tex.descriptor_set;
     }
+    return tex;
+}
 
-    if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] importTextureFD: success, fd={d} {}x{}\n", .{ fd, desc.width, desc.height });
+/// Legacy import path: takes an fd that is already usable by this device
+/// (typically VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT from the same GPU).
+/// For cross-device/cross-process dma-buf imports use importTextureDMABuf,
+/// which also carries stride/offset/modifier metadata.
+pub fn importTextureFD(surface: *VulkanSurface, fd: i32, desc: *const zgraphics.ZawraGraphicsTextureDesc) ?*VulkanTexture {
+    if (builtin.os.tag != .linux) return null;
+    if (fd < 0) {
+        if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] importTextureFD: invalid fd={d}\n", .{fd});
+        return null;
+    }
+    if (!surface.external_memory_enabled) {
+        if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] importTextureFD: external memory not enabled\n", .{});
+        return null;
+    }
+    if (desc.width == 0 or desc.height == 0) return null;
+
+    const candidates = [_]struct { handle_type: u32, tiling: u32 }{
+        .{ .handle_type = c.VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT, .tiling = c.VK_IMAGE_TILING_OPTIMAL },
+        .{ .handle_type = c.VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT, .tiling = c.VK_IMAGE_TILING_LINEAR },
+    };
+
+    for (candidates) |candidate| {
+        const fd_props = queryFdMemoryTypes(surface, fd, candidate.handle_type) orelse continue;
+        const memory_type_index = findImportedMemoryType(surface, fd_props) orelse continue;
+
+        var external_image_info = std.mem.zeroInit(c.VkExternalMemoryImageCreateInfo, .{
+            .sType = c.VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
+            .handleTypes = candidate.handle_type,
+        });
+        const image_info = std.mem.zeroInit(c.VkImageCreateInfo, .{
+            .sType = c.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+            .pNext = &external_image_info,
+            .imageType = c.VK_IMAGE_TYPE_2D,
+            .extent = .{ .width = desc.width, .height = desc.height, .depth = 1 },
+            .mipLevels = 1,
+            .arrayLayers = 1,
+            .format = c.VK_FORMAT_R8G8B8A8_UNORM,
+            .tiling = candidate.tiling,
+            .initialLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
+            .usage = c.VK_IMAGE_USAGE_TRANSFER_DST_BIT | c.VK_IMAGE_USAGE_SAMPLED_BIT,
+            .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
+            .samples = c.VK_SAMPLE_COUNT_1_BIT,
+        });
+
+        var image: c.VkImage = null;
+        if (c.vkCreateImage(surface.device, &image_info, null, &image) != c.VK_SUCCESS) continue;
+
+        var mem_reqs: c.VkMemoryRequirements = undefined;
+        c.vkGetImageMemoryRequirements(surface.device, image, &mem_reqs);
+
+        var import_fd_info = std.mem.zeroInit(c.VkImportMemoryFdInfoKHR, .{
+            .sType = c.VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR,
+            .handleType = candidate.handle_type,
+            .fd = fd,
+        });
+        const alloc_info = std.mem.zeroInit(c.VkMemoryAllocateInfo, .{
+            .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+            .pNext = &import_fd_info,
+            .allocationSize = mem_reqs.size,
+            .memoryTypeIndex = memory_type_index,
+        });
+
+        var memory: c.VkDeviceMemory = null;
+        if (c.vkAllocateMemory(surface.device, &alloc_info, null, &memory) != c.VK_SUCCESS) {
+            c.vkDestroyImage(surface.device, image, null);
+            continue;
+        }
+        if (c.vkBindImageMemory(surface.device, image, memory, 0) != c.VK_SUCCESS) {
+            c.vkFreeMemory(surface.device, memory, null);
+            c.vkDestroyImage(surface.device, image, null);
+            continue;
+        }
+        if (!transitionImportedImage(surface, image)) {
+            c.vkFreeMemory(surface.device, memory, null);
+            c.vkDestroyImage(surface.device, image, null);
+            continue;
+        }
+
+        const tex = finishImportedTexture(surface, image, memory, desc.width, desc.height, c.VK_FORMAT_R8G8B8A8_UNORM, desc);
+        if (tex != null) {
+            if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] importTextureFD: success, fd={d} {}x{} handleType=0x{x} tiling={d}\n", .{ fd, desc.width, desc.height, candidate.handle_type, candidate.tiling });
+            return tex;
+        }
+        return null;
+    }
+
+    if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] importTextureFD: no compatible import path for fd={d}\n", .{fd});
+    return null;
+}
+
+/// Imports a dma-buf described by ZawraGraphicsDMABufInfo. The explicit DRM
+/// format modifier, stride and offset are part of the image creation, which is
+/// what tiled/compressed producers require.
+///
+/// `fd` remains owned by the caller: the Vulkan import takes its own reference.
+pub fn importTextureDMABuf(
+    surface: *VulkanSurface,
+    fd: i32,
+    info: *const zgraphics.ZawraGraphicsDMABufInfo,
+    desc: *const zgraphics.ZawraGraphicsTextureDesc,
+) ?*VulkanTexture {
+    if (builtin.os.tag != .linux) return null;
+    if (fd < 0 or !surface.external_memory_enabled) {
+        if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] importTextureDMABuf: invalid fd={d} or external memory disabled\n", .{fd});
+        return null;
+    }
+    if (info.width == 0 or info.height == 0 or info.stride == 0) {
+        if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] importTextureDMABuf: invalid {}x{} stride={d}\n", .{ info.width, info.height, info.stride });
+        return null;
+    }
+
+    const vk_format = drmFormatToVk(info.drm_format);
+
+    const fd_props = queryFdMemoryTypes(surface, fd, c.VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT) orelse {
+        if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] importTextureDMABuf: fd is not importable as a dma-buf\n", .{});
+        return null;
+    };
+    const memory_type_index = findImportedMemoryType(surface, fd_props) orelse {
+        if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] importTextureDMABuf: no compatible memory type\n", .{});
+        return null;
+    };
+
+    const is_linear = info.drm_modifier == c.DRM_FORMAT_MOD_LINEAR;
+    const plane_layout = c.VkSubresourceLayout{
+        .offset = info.offset,
+        .size = 0,
+        .rowPitch = info.stride,
+        .arrayPitch = 0,
+        .depthPitch = 0,
+    };
+    var explicit_modifier_info = std.mem.zeroInit(c.VkImageDrmFormatModifierExplicitCreateInfoEXT, .{
+        .drmFormatModifier = info.drm_modifier,
+        .drmFormatModifierPlaneCount = 1,
+        .pPlaneLayouts = @as([*]const c.VkSubresourceLayout, @ptrCast(&plane_layout)),
+    });
+
+    var external_image_info = std.mem.zeroInit(c.VkExternalMemoryImageCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
+        .handleTypes = c.VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
+    });
+    if (!is_linear) {
+        external_image_info.pNext = &explicit_modifier_info;
+    }
+
+    const image_info = std.mem.zeroInit(c.VkImageCreateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .pNext = &external_image_info,
+        .imageType = c.VK_IMAGE_TYPE_2D,
+        .extent = .{ .width = info.width, .height = info.height, .depth = 1 },
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .format = vk_format,
+        .tiling = if (is_linear) c.VK_IMAGE_TILING_LINEAR else c.VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT,
+        .initialLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
+        .usage = c.VK_IMAGE_USAGE_SAMPLED_BIT | c.VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+        .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
+        .samples = c.VK_SAMPLE_COUNT_1_BIT,
+    });
+
+    var image: c.VkImage = null;
+    if (c.vkCreateImage(surface.device, &image_info, null, &image) != c.VK_SUCCESS) {
+        if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] importTextureDMABuf: vkCreateImage failed (format={d} modifier=0x{x})\n", .{ vk_format, info.drm_modifier });
+        return null;
+    }
+
+    var mem_reqs: c.VkMemoryRequirements = undefined;
+    c.vkGetImageMemoryRequirements(surface.device, image, &mem_reqs);
+
+    var import_fd_info = std.mem.zeroInit(c.VkImportMemoryFdInfoKHR, .{
+        .sType = c.VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR,
+        .handleType = c.VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
+        .fd = fd,
+    });
+    // dma-buf imports are dedicated allocations; drivers require this for
+    // DRM-format-modifier images.
+    var dedicated_info = std.mem.zeroInit(c.VkMemoryDedicatedAllocateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO,
+        .image = image,
+    });
+    import_fd_info.pNext = &dedicated_info;
+
+    const alloc_info = std.mem.zeroInit(c.VkMemoryAllocateInfo, .{
+        .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .pNext = &import_fd_info,
+        .allocationSize = mem_reqs.size,
+        .memoryTypeIndex = memory_type_index,
+    });
+
+    var memory: c.VkDeviceMemory = null;
+    if (c.vkAllocateMemory(surface.device, &alloc_info, null, &memory) != c.VK_SUCCESS) {
+        if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] importTextureDMABuf: vkAllocateMemory failed\n", .{});
+        c.vkDestroyImage(surface.device, image, null);
+        return null;
+    }
+    if (c.vkBindImageMemory(surface.device, image, memory, 0) != c.VK_SUCCESS) {
+        c.vkFreeMemory(surface.device, memory, null);
+        c.vkDestroyImage(surface.device, image, null);
+        return null;
+    }
+    if (!transitionImportedImage(surface, image)) {
+        c.vkFreeMemory(surface.device, memory, null);
+        c.vkDestroyImage(surface.device, image, null);
+        return null;
+    }
+
+    const tex = finishImportedTexture(surface, image, memory, info.width, info.height, vk_format, desc);
+    if (tex != null) {
+        if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] importTextureDMABuf: success fd={d} {}x{} stride={d} offset={d} format=0x{x} modifier=0x{x}\n", .{ fd, info.width, info.height, info.stride, info.offset, info.drm_format, info.drm_modifier });
+    }
     return tex;
 }
 

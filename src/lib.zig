@@ -3,7 +3,11 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 // Platform-specific backends
-const linux_vulkan = if (builtin.os.tag == .linux) @import("linux_vulkan.zig") else struct {};
+const is_android = builtin.abi.isAndroid();
+const is_desktop_linux = builtin.os.tag == .linux and !is_android;
+const desktop_vulkan = if (is_desktop_linux) @import("linux_vulkan.zig") else struct {};
+const android_vulkan = if (is_android) @import("android_vulkan.zig") else struct {};
+const linux_vulkan = if (is_android) android_vulkan else if (is_desktop_linux) desktop_vulkan else struct {};
 const macos_metal = if (builtin.os.tag == .macos) @import("macos_metal.zig") else struct {};
 const windows_d3d12 = if (builtin.os.tag == .windows) @import("windows_d3d12.zig") else struct {};
 const compositor = @import("renderer.zig");
@@ -79,7 +83,6 @@ pub export fn ZG_Initialize() bool {
     return true;
 }
 
-
 pub export fn ZG_CreateSurface(window: ?ZawraGraphicsHandle, width: u32, height: u32) ?ZawraGraphicsHandle {
     if (builtin.os.tag == .linux) return @ptrCast(linux_vulkan.createSurface(window, width, height));
     if (builtin.os.tag == .macos) return @ptrCast(macos_metal.createSurface(window, width, height));
@@ -129,6 +132,10 @@ pub const ZawraGraphicsDMABufInfo = extern struct {
     drm_modifier: u64,
 };
 
+/// Exports the surface's render target as a dma-buf.
+///
+/// On success `info.fd` is a new file descriptor owned by the caller, who must
+/// close() it. The fd is *not* closed by z-graphics.
 pub export fn ZG_ExportSurfaceDMABuf(surface: ?ZawraGraphicsHandle, info: *ZawraGraphicsDMABufInfo) bool {
     if (surface == null) return false;
     if (builtin.os.tag == .linux) return linux_vulkan.exportSurfaceDMABuf(@ptrCast(@alignCast(surface.?)), info);
@@ -299,10 +306,28 @@ pub export fn ZG_ReadbackTexture(handle: ?ZawraGraphicsHandle, texture: ZawraGra
     return false;
 }
 
+/// Imports an fd that is already usable by this device (opaque fd, or a
+/// linear dma-buf). Prefer ZG_ImportTextureDMABuf when stride/offset/modifier
+/// metadata is available.
+///
+/// `fd` stays owned by the caller.
 pub export fn ZG_ImportTextureFD(handle: ?ZawraGraphicsHandle, fd: i32, desc: *const ZawraGraphicsTextureDesc) ?ZawraGraphicsTexture {
     if (handle == null) return null;
     if (builtin.os.tag == .linux) return @ptrCast(linux_vulkan.importTextureFD(@ptrCast(@alignCast(handle.?)), fd, desc));
     if (builtin.os.tag == .macos) return @ptrCast(macos_metal.importTextureFD(@as(*macos_metal.MetalSurface, @ptrCast(@alignCast(handle.?))), fd, desc));
+    return null;
+}
+
+/// Imports a dma-buf using explicit format-modifier, stride and offset
+/// metadata. `fd` stays owned by the caller.
+pub export fn ZG_ImportTextureDMABuf(
+    handle: ?ZawraGraphicsHandle,
+    fd: i32,
+    info: *const ZawraGraphicsDMABufInfo,
+    desc: *const ZawraGraphicsTextureDesc,
+) ?ZawraGraphicsTexture {
+    if (handle == null) return null;
+    if (builtin.os.tag == .linux) return @ptrCast(linux_vulkan.importTextureDMABuf(@ptrCast(@alignCast(handle.?)), fd, info, desc));
     return null;
 }
 
