@@ -371,6 +371,11 @@ pub fn cmdClearColor(cmd: *MetalCommandBuffer, r: f32, g: f32, b: f32, a: f32) v
 pub fn submitCommandBuffer(surface: *MetalSurface, cmd: *MetalCommandBuffer) void {
     if (builtin.os.tag != .macos) return;
     _ = surface;
+    if (cmd.render_encoder) |enc| {
+        const endEncoding = sel("endEncoding");
+        _ = msgSend(enc, endEncoding, .{});
+        cmd.render_encoder = null;
+    }
     const commit = sel("commit");
     _ = msgSend(cmd.cmd_buffer, commit, .{});
 }
@@ -445,18 +450,32 @@ pub fn cmdBindTexture(cmd: *MetalCommandBuffer, texture: *MetalTexture, binding:
 
 pub fn cmdBindVertexBuffer(cmd: *MetalCommandBuffer, buffer: *MetalBuffer, offset: usize) void {
     if (builtin.os.tag != .macos) return;
-    _ = cmd;
-    _ = buffer;
-    _ = offset;
+    if (cmd.render_encoder) |enc| {
+        const p_msgSend = p_objc_msgSend orelse return;
+        const setVertexBuffer_sel = sel("setVertexBuffer:offset:atIndex:") orelse return;
+        const Fn_setVertexBuffer = *const fn (self: ?*anyopaque, op: ?*anyopaque, buf: ?*anyopaque, off: usize, index: usize) callconv(.c) void;
+        const fn_call: Fn_setVertexBuffer = @ptrCast(@alignCast(p_msgSend));
+        fn_call(enc, setVertexBuffer_sel, buffer.buffer, offset, 0);
+    }
 }
 
 pub fn cmdDraw(cmd: *MetalCommandBuffer, vertex_count: u32, instance_count: u32, first_vertex: u32, first_instance: u32) void {
     if (builtin.os.tag != .macos) return;
-    _ = cmd;
-    _ = vertex_count;
-    _ = instance_count;
-    _ = first_vertex;
-    _ = first_instance;
+    if (cmd.render_encoder) |enc| {
+        const p_msgSend = p_objc_msgSend orelse return;
+        const primitive_type: usize = if (vertex_count == 4) 4 else 3; // 4: TriangleStrip, 3: Triangle
+        if (first_instance == 0) {
+            const drawPrimitives_sel = sel("drawPrimitives:vertexStart:vertexCount:instanceCount:") orelse return;
+            const Fn_drawPrimitives = *const fn (self: ?*anyopaque, op: ?*anyopaque, prim: usize, start: usize, count: usize, instances: usize) callconv(.c) void;
+            const fn_call: Fn_drawPrimitives = @ptrCast(@alignCast(p_msgSend));
+            fn_call(enc, drawPrimitives_sel, primitive_type, @as(usize, first_vertex), @as(usize, vertex_count), @as(usize, instance_count));
+        } else {
+            const drawPrimitivesBase_sel = sel("drawPrimitives:vertexStart:vertexCount:instanceCount:baseInstance:") orelse return;
+            const Fn_drawPrimitivesBase = *const fn (self: ?*anyopaque, op: ?*anyopaque, prim: usize, start: usize, count: usize, instances: usize, base: usize) callconv(.c) void;
+            const fn_call: Fn_drawPrimitivesBase = @ptrCast(@alignCast(p_msgSend));
+            fn_call(enc, drawPrimitivesBase_sel, primitive_type, @as(usize, first_vertex), @as(usize, vertex_count), @as(usize, instance_count), @as(usize, first_instance));
+        }
+    }
 }
 
 pub fn uploadBuffer(buffer: *MetalBuffer, data: ?*const anyopaque, dataLen: usize) bool {
@@ -476,7 +495,16 @@ pub fn getBufferSize(buffer: *MetalBuffer) usize {
     return buffer.size;
 }
 
-pub const MetalTexture = struct { texture: ?*anyopaque };
+pub const MTLOrigin = extern struct { x: usize = 0, y: usize = 0, z: usize = 0 };
+pub const MTLSize = extern struct { width: usize = 0, height: usize = 0, depth: usize = 1 };
+pub const MTLRegion = extern struct { origin: MTLOrigin, size: MTLSize };
+
+pub const MetalTexture = struct {
+    texture: ?*anyopaque,
+    width: u32 = 0,
+    height: u32 = 0,
+    format: zgraphics.ZawraGraphicsTextureFormat = .R8G8B8A8_Unorm,
+};
 
 pub fn setTextureParams(
     surface: *MetalSurface,
@@ -516,7 +544,12 @@ pub fn createTexture(surface: *MetalSurface, desc: *const zgraphics.ZawraGraphic
     );
     const tex = msgSend(surface.device, newTextureWithDescriptor, .{descriptor}) orelse return null;
     const mt = std.heap.page_allocator.create(MetalTexture) catch return null;
-    mt.* = .{ .texture = tex };
+    mt.* = .{
+        .texture = tex,
+        .width = desc.width,
+        .height = desc.height,
+        .format = desc.format,
+    };
     return mt;
 }
 
@@ -558,8 +591,105 @@ pub fn importTextureFD(surface: *MetalSurface, fd: i32, desc: *const zgraphics.Z
     const tex = msgSend(surface.device, newTextureWithDescriptor_iosurface_plane, .{ descriptor, iosurf, @as(usize, 0) }) orelse return null;
 
     const mt = std.heap.page_allocator.create(MetalTexture) catch return null;
-    mt.* = .{ .texture = tex };
+    mt.* = .{
+        .texture = tex,
+        .width = desc.width,
+        .height = desc.height,
+        .format = desc.format,
+    };
     return mt;
+}
+
+pub fn uploadTextureRegion(
+    surface: *MetalSurface,
+    texture: *MetalTexture,
+    x: i32,
+    y: u32,
+    width: u32,
+    height: u32,
+    data: []const u8,
+    rowStride: u32,
+    srcOffsetX: u32,
+    srcOffsetY: u32,
+) bool {
+    if (builtin.os.tag != .macos) return false;
+    _ = surface;
+    if (data.len == 0 or width == 0 or height == 0 or texture.texture == null) return false;
+    if (!initDynamicLibraries()) return false;
+    const p_msgSend = p_objc_msgSend orelse return false;
+    const replaceRegion_sel = sel("replaceRegion:mipmapLevel:withBytes:bytesPerRow:") orelse return false;
+
+    const effective_row_stride = if (rowStride > 0) rowStride else width * 4;
+    const src_byte_offset = @as(usize, srcOffsetY) * @as(usize, effective_row_stride) + @as(usize, srcOffsetX) * 4;
+    if (src_byte_offset >= data.len) return false;
+    const src_ptr = data.ptr + src_byte_offset;
+
+    const dst_x: usize = if (x >= 0) @as(usize, @intCast(x)) else 0;
+    const region = MTLRegion{
+        .origin = .{ .x = dst_x, .y = @as(usize, y), .z = 0 },
+        .size = .{ .width = @as(usize, width), .height = @as(usize, height), .depth = 1 },
+    };
+
+    const Fn_replaceRegion = *const fn (
+        self: ?*anyopaque,
+        op: ?*anyopaque,
+        region: MTLRegion,
+        level: usize,
+        bytes: ?*const anyopaque,
+        bytesPerRow: usize,
+    ) callconv(.c) void;
+
+    const fn_call: Fn_replaceRegion = @ptrCast(@alignCast(p_msgSend));
+    fn_call(texture.texture, replaceRegion_sel, region, 0, src_ptr, effective_row_stride);
+    return true;
+}
+
+pub fn uploadTexture(
+    surface: *MetalSurface,
+    texture: *MetalTexture,
+    data: ?*const anyopaque,
+    dataLen: usize,
+) bool {
+    if (data == null or dataLen == 0) return false;
+    const slice = @as([*]const u8, @ptrCast(data.?))[0..dataLen];
+    const stride = if (texture.width > 0) texture.width * 4 else @as(u32, @intCast(@min(dataLen, 4)));
+    return uploadTextureRegion(surface, texture, 0, 0, texture.width, texture.height, slice, stride, 0, 0);
+}
+
+pub fn readbackTexture(
+    surface: *MetalSurface,
+    texture: *MetalTexture,
+    out_buf: ?[*]u8,
+    len: usize,
+) bool {
+    if (builtin.os.tag != .macos) return false;
+    _ = surface;
+    if (out_buf == null or len == 0 or texture.texture == null) return false;
+    if (!initDynamicLibraries()) return false;
+    const p_msgSend = p_objc_msgSend orelse return false;
+    const getBytes_sel = sel("getBytes:bytesPerRow:fromRegion:mipmapLevel:") orelse return false;
+
+    const bytesPerRow: usize = @as(usize, texture.width) * 4;
+    const required_len: usize = bytesPerRow * @as(usize, texture.height);
+    if (len < required_len) return false;
+
+    const region = MTLRegion{
+        .origin = .{ .x = 0, .y = 0, .z = 0 },
+        .size = .{ .width = @as(usize, texture.width), .height = @as(usize, texture.height), .depth = 1 },
+    };
+
+    const Fn_getBytes = *const fn (
+        self: ?*anyopaque,
+        op: ?*anyopaque,
+        bytes: ?*anyopaque,
+        bytesPerRow: usize,
+        region: MTLRegion,
+        level: usize,
+    ) callconv(.c) void;
+
+    const fn_call: Fn_getBytes = @ptrCast(@alignCast(p_msgSend));
+    fn_call(texture.texture, getBytes_sel, out_buf.?, bytesPerRow, region, 0);
+    return true;
 }
 
 pub fn beginLayer(cmd: *MetalCommandBuffer, layer_id: u32, x: f32, y: f32, width: f32, height: f32, opacity: f32) void {
@@ -623,10 +753,15 @@ pub fn uploadUniformBuffer(surface: *MetalSurface, buffer: *MetalBuffer, data: ?
 
 pub fn cmdBindUniformBuffer(cmd: *MetalCommandBuffer, buffer: *MetalBuffer, binding: u32, offset: u64) void {
     if (builtin.os.tag != .macos) return;
-    _ = cmd;
-    _ = buffer;
-    _ = binding;
-    _ = offset;
+    if (cmd.render_encoder) |enc| {
+        const p_msgSend = p_objc_msgSend orelse return;
+        const setVertexBuffer_sel = sel("setVertexBuffer:offset:atIndex:") orelse return;
+        const setFragmentBuffer_sel = sel("setFragmentBuffer:offset:atIndex:") orelse return;
+        const Fn_setBuffer = *const fn (self: ?*anyopaque, op: ?*anyopaque, buf: ?*anyopaque, off: usize, idx: usize) callconv(.c) void;
+        const fn_call: Fn_setBuffer = @ptrCast(@alignCast(p_msgSend));
+        fn_call(enc, setVertexBuffer_sel, buffer.buffer, @as(usize, @intCast(offset)), @as(usize, binding));
+        fn_call(enc, setFragmentBuffer_sel, buffer.buffer, @as(usize, @intCast(offset)), @as(usize, binding));
+    }
 }
 
 pub fn createMRTSurface(surface: *MetalSurface, width: u32, height: u32, attachment_count: u32) ?*anyopaque {
@@ -704,22 +839,58 @@ pub fn cmdCopyTexture(cmd: *MetalCommandBuffer, src: *MetalTexture, dst: *MetalT
     _ = dst;
 }
 
+pub const MTLViewport = extern struct {
+    originX: f64,
+    originY: f64,
+    width: f64,
+    height: f64,
+    znear: f64,
+    zfar: f64,
+};
+
+pub const MTLScissorRect = extern struct {
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
+};
+
 pub fn cmdSetViewport(cmd: *MetalCommandBuffer, x: f32, y: f32, width: f32, height: f32, min_depth: f32, max_depth: f32) void {
-    _ = cmd;
-    _ = x;
-    _ = y;
-    _ = width;
-    _ = height;
-    _ = min_depth;
-    _ = max_depth;
+    if (builtin.os.tag != .macos) return;
+    if (cmd.render_encoder) |enc| {
+        const p_msgSend = p_objc_msgSend orelse return;
+        const setViewport_sel = sel("setViewport:") orelse return;
+        const vp = MTLViewport{
+            .originX = @floatCast(x),
+            .originY = @floatCast(y),
+            .width = @floatCast(width),
+            .height = @floatCast(height),
+            .znear = @floatCast(min_depth),
+            .zfar = @floatCast(max_depth),
+        };
+        const Fn_setViewport = *const fn (self: ?*anyopaque, op: ?*anyopaque, viewport: MTLViewport) callconv(.c) void;
+        const fn_call: Fn_setViewport = @ptrCast(@alignCast(p_msgSend));
+        fn_call(enc, setViewport_sel, vp);
+    }
 }
 
 pub fn cmdSetScissor(cmd: *MetalCommandBuffer, x: i32, y: i32, width: u32, height: u32) void {
-    _ = cmd;
-    _ = x;
-    _ = y;
-    _ = width;
-    _ = height;
+    if (builtin.os.tag != .macos) return;
+    if (cmd.render_encoder) |enc| {
+        const p_msgSend = p_objc_msgSend orelse return;
+        const setScissorRect_sel = sel("setScissorRect:") orelse return;
+        const sx: usize = if (x >= 0) @as(usize, @intCast(x)) else 0;
+        const sy: usize = if (y >= 0) @as(usize, @intCast(y)) else 0;
+        const sc = MTLScissorRect{
+            .x = sx,
+            .y = sy,
+            .width = @as(usize, width),
+            .height = @as(usize, height),
+        };
+        const Fn_setScissor = *const fn (self: ?*anyopaque, op: ?*anyopaque, rect: MTLScissorRect) callconv(.c) void;
+        const fn_call: Fn_setScissor = @ptrCast(@alignCast(p_msgSend));
+        fn_call(enc, setScissorRect_sel, sc);
+    }
 }
 
 pub fn getDeviceProperty(handle: anytype, name: u32) u32 {
