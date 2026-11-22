@@ -46,3 +46,7 @@ pub fn createVkSurface(
 pub fn destroyWindow(window: ?*anyopaque) void {
     _ = window;
 }
+
+pub fn dispatchEvents(window: ?*anyopaque) void {
+    _ = window;
+}

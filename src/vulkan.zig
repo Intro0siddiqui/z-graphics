@@ -6,7 +6,7 @@ const is_android = builtin.abi.isAndroid();
 const platform = if (is_android)
     @import("platform/android.zig")
 else
-    @import("platform/linux_x11.zig");
+    @import("platform/linux.zig");
 
 /// Upper bound for swapchain images. Drivers may report a minImageCount larger
 /// than this, in which case surface creation fails instead of overflowing the
@@ -981,6 +981,7 @@ const c = struct {
     pub extern "vulkan" fn vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice: VkPhysicalDevice, surface: VkSurfaceKHR, pSurfaceCapabilities: *VkSurfaceCapabilitiesKHR) callconv(.c) VkResult;
     pub extern "vulkan" fn vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice: VkPhysicalDevice, surface: VkSurfaceKHR, pSurfaceFormatCount: *u32, pSurfaceFormats: ?[*]VkSurfaceFormatKHR) callconv(.c) VkResult;
     pub extern "vulkan" fn vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice: VkPhysicalDevice, surface: VkSurfaceKHR, pPresentModeCount: *u32, pPresentModes: ?[*]u32) callconv(.c) VkResult;
+    pub extern "vulkan" fn vkDestroySurfaceKHR(instance: VkInstance, surface: VkSurfaceKHR, pAllocator: ?*const anyopaque) callconv(.c) void;
     pub extern "vulkan" fn vkCreateSwapchainKHR(device: VkDevice, pCreateInfo: *const VkSwapchainCreateInfoKHR, pAllocator: ?*const anyopaque, pSwapchain: *VkSwapchainKHR) callconv(.c) VkResult;
     pub extern "vulkan" fn vkDestroySwapchainKHR(device: VkDevice, swapchain: VkSwapchainKHR, pAllocator: ?*const anyopaque) callconv(.c) void;
     pub extern "vulkan" fn vkGetSwapchainImagesKHR(device: VkDevice, swapchain: VkSwapchainKHR, pSwapchainImageCount: *u32, pSwapchainImages: ?[*]VkImage) callconv(.c) VkResult;
@@ -1442,6 +1443,11 @@ pub const VulkanSurface = struct {
 pub fn createWindow(width: u32, height: u32) ?*anyopaque {
     if (builtin.os.tag != .linux) return null;
     return platform.createWindow(width, height);
+}
+
+pub fn pollEvents(window: ?*anyopaque) void {
+    if (builtin.os.tag != .linux) return;
+    platform.dispatchEvents(window);
 }
 
 fn findMemoryType(physical_device: c.VkPhysicalDevice, type_filter: u32, properties: u32) ?u32 {
@@ -1960,12 +1966,18 @@ pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*VulkanSurfa
         });
 
         const instance_extension_sets = [_][]const [*:0]const u8{
-            // Preferred: headless + external memory capability queries.
-            &.{ "VK_KHR_surface", platform.surface_extension, "VK_EXT_headless_surface", "VK_KHR_external_memory_capabilities" },
-            // Driver without VK_KHR_external_memory_capabilities.
-            &.{ "VK_KHR_surface", platform.surface_extension, "VK_EXT_headless_surface" },
-            // Driver without VK_EXT_headless_surface.
-            &.{ "VK_KHR_surface", platform.surface_extension },
+            // Preferred: Both Wayland and X11 surfaces + headless + external memory
+            &.{ "VK_KHR_surface", "VK_KHR_wayland_surface", "VK_KHR_xlib_surface", "VK_EXT_headless_surface", "VK_KHR_external_memory_capabilities" },
+            // Wayland + headless + external memory
+            &.{ "VK_KHR_surface", "VK_KHR_wayland_surface", "VK_EXT_headless_surface", "VK_KHR_external_memory_capabilities" },
+            // X11 + headless + external memory
+            &.{ "VK_KHR_surface", "VK_KHR_xlib_surface", "VK_EXT_headless_surface", "VK_KHR_external_memory_capabilities" },
+            // Headless + external memory
+            &.{ "VK_KHR_surface", "VK_EXT_headless_surface", "VK_KHR_external_memory_capabilities" },
+            // Minimal headless
+            &.{ "VK_KHR_surface", "VK_EXT_headless_surface" },
+            // Bare surface
+            &.{"VK_KHR_surface"},
         };
 
         var instance: c.VkInstance = null;
@@ -2549,7 +2561,6 @@ pub fn destroySurface(surface: *VulkanSurface) void {
     if (surface.msaa_color_view != null) c.vkDestroyImageView(surface.device, surface.msaa_color_view, null);
     if (surface.msaa_color_image != null) c.vkDestroyImage(surface.device, surface.msaa_color_image, null);
     if (surface.msaa_color_memory != null) c.vkFreeMemory(surface.device, surface.msaa_color_memory, null);
-    platform.destroyWindow(surface.window);
     if (surface.framebuffer != null) c.vkDestroyFramebuffer(surface.device, surface.framebuffer, null);
     if (surface.render_pass != null) c.vkDestroyRenderPass(surface.device, surface.render_pass, null);
     if (surface.image_view != null) c.vkDestroyImageView(surface.device, surface.image_view, null);
@@ -2560,13 +2571,19 @@ pub fn destroySurface(surface: *VulkanSurface) void {
     if (surface.transfer_pool != null) c.vkDestroyCommandPool(surface.device, surface.transfer_pool, null);
     if (surface.descriptor_pool != null) c.vkDestroyDescriptorPool(surface.device, surface.descriptor_pool, null);
     if (surface.descriptor_set_layout != null) c.vkDestroyDescriptorSetLayout(surface.device, surface.descriptor_set_layout, null);
+    if (surface.surface != null) {
+        c.vkDestroySurfaceKHR(surface.instance, surface.surface, null);
+        surface.surface = null;
+    }
     if (surface.device != null) c.vkDestroyDevice(surface.device, null);
     if (surface.instance != null) c.vkDestroyInstance(surface.instance, null);
+    platform.destroyWindow(surface.window);
     std.heap.page_allocator.destroy(surface);
 }
 
 pub fn swapBuffers(surface: *VulkanSurface) void {
     if (builtin.os.tag != .linux) return;
+    platform.dispatchEvents(surface.window);
     if (surface.swapchain != null) {
         const wait_semaphore = surface.render_finished_semaphore;
         var present_info = std.mem.zeroInit(c.VkPresentInfoKHR, .{
