@@ -15,6 +15,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/lib.zig"),
         .target = target,
         .optimize = optimize,
+        .pic = true,
     });
     lib_mod.link_libc = true;
 
@@ -92,7 +93,7 @@ pub fn build(b: *std.Build) void {
 
     smoke_test.root_module.link_libc = true;
 
-    if (target.result.os.tag == .linux) {
+    if (target.result.os.tag == .linux and !target.result.abi.isAndroid()) {
         smoke_test.root_module.linkSystemLibrary("vulkan", .{});
         smoke_test.root_module.linkSystemLibrary("X11", .{});
     } else if (target.result.os.tag == .macos) {
@@ -106,9 +107,12 @@ pub fn build(b: *std.Build) void {
     }
 
     smoke_test.root_module.addImport("lib", lib_mod);
-    b.installArtifact(smoke_test);
 
-    const run_cmd = b.addRunArtifact(smoke_test);
-    const test_step = b.step("test", "Run smoke test");
-    test_step.dependOn(&run_cmd.step);
+    if (!target.result.abi.isAndroid()) {
+        b.installArtifact(smoke_test);
+
+        const run_cmd = b.addRunArtifact(smoke_test);
+        const test_step = b.step("test", "Run smoke test");
+        test_step.dependOn(&run_cmd.step);
+    }
 }
