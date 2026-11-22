@@ -1631,8 +1631,8 @@ fn probeExternalImageExport(
     tiling: u32,
     drm_modifier: ?u64,
 ) ?u32 {
-    const pfn = @as(?c.PFN_vkGetPhysicalDeviceExternalImageFormatPropertiesKHR, @ptrCast(c.vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceExternalImageFormatPropertiesKHR"))) orelse
-        @as(?c.PFN_vkGetPhysicalDeviceExternalImageFormatPropertiesKHR, @ptrCast(c.vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceExternalImageFormatProperties")));
+    const pfn = @as(?c.PFN_vkGetPhysicalDeviceExternalImageFormatPropertiesKHR, @ptrCast(@alignCast(c.vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceExternalImageFormatPropertiesKHR")))) orelse
+        @as(?c.PFN_vkGetPhysicalDeviceExternalImageFormatPropertiesKHR, @ptrCast(@alignCast(c.vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceExternalImageFormatProperties"))));
     if (pfn == null) return null;
 
     var modifier_info = std.mem.zeroInit(c.VkPhysicalDeviceImageDrmFormatModifierInfoEXT, .{
@@ -2472,7 +2472,7 @@ pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*VulkanSurfa
 
         var drm_modifier: u64 = c.DRM_FORMAT_MOD_LINEAR;
         if (drm_modifier_enabled) {
-            const pfnGetImageDrmModifierProps = @as(?c.PFN_vkGetImageDrmFormatModifierPropertiesEXT, @ptrCast(c.vkGetDeviceProcAddr(device, "vkGetImageDrmFormatModifierPropertiesEXT")));
+            const pfnGetImageDrmModifierProps = @as(?c.PFN_vkGetImageDrmFormatModifierPropertiesEXT, @ptrCast(@alignCast(c.vkGetDeviceProcAddr(device, "vkGetImageDrmFormatModifierPropertiesEXT"))));
             if (pfnGetImageDrmModifierProps) |getProps| {
                 var mod_props = std.mem.zeroInit(c.VkImageDrmFormatModifierPropertiesEXT, .{
                     .sType = c.VK_STRUCTURE_TYPE_IMAGE_DRM_FORMAT_MODIFIER_PROPERTIES_EXT,
@@ -2770,7 +2770,7 @@ pub fn exportSurfaceFD(surface: *VulkanSurface) i32 {
     }
     waitFenceIfPending(surface);
 
-    const pfnGetMemoryFdKHR = @as(?c.PFN_vkGetMemoryFdKHR, @ptrCast(c.vkGetDeviceProcAddr(surface.device, "vkGetMemoryFdKHR")));
+    const pfnGetMemoryFdKHR = @as(?c.PFN_vkGetMemoryFdKHR, @ptrCast(@alignCast(c.vkGetDeviceProcAddr(surface.device, "vkGetMemoryFdKHR"))));
     const getFd = pfnGetMemoryFdKHR orelse {
         std.debug.print("[Z-GRAPHICS] exportSurfaceFD: vkGetMemoryFdKHR not found\n", .{});
         return -1;
@@ -2809,7 +2809,7 @@ pub fn exportSurfaceDMABuf(surface: *VulkanSurface, info: *zgraphics.ZawraGraphi
     // signaled because every submit path waits.
     waitFenceIfPending(surface);
 
-    const pfnGetMemoryFdKHR = @as(?c.PFN_vkGetMemoryFdKHR, @ptrCast(c.vkGetDeviceProcAddr(surface.device, "vkGetMemoryFdKHR")));
+    const pfnGetMemoryFdKHR = @as(?c.PFN_vkGetMemoryFdKHR, @ptrCast(@alignCast(c.vkGetDeviceProcAddr(surface.device, "vkGetMemoryFdKHR"))));
     const getFd = pfnGetMemoryFdKHR orelse {
         std.debug.print("[Z-GRAPHICS] exportSurfaceDMABuf: vkGetMemoryFdKHR not found\n", .{});
         return false;
@@ -4544,7 +4544,7 @@ fn findImportedMemoryType(surface: *VulkanSurface, fd_props: c.VkMemoryFdPropert
 }
 
 fn queryFdMemoryTypes(surface: *VulkanSurface, fd: i32, handle_type: u32) ?c.VkMemoryFdPropertiesKHR {
-    const pfn = @as(?c.PFN_vkGetMemoryFdPropertiesKHR, @ptrCast(c.vkGetDeviceProcAddr(surface.device, "vkGetMemoryFdPropertiesKHR"))) orelse return null;
+    const pfn = @as(?c.PFN_vkGetMemoryFdPropertiesKHR, @ptrCast(@alignCast(c.vkGetDeviceProcAddr(surface.device, "vkGetMemoryFdPropertiesKHR")))) orelse return null;
     var props = std.mem.zeroInit(c.VkMemoryFdPropertiesKHR, .{});
     if (pfn(surface.device, handle_type, fd, &props) != c.VK_SUCCESS) return null;
     if (props.memoryTypeBits == 0) return null;
@@ -5163,8 +5163,8 @@ pub fn destroyTexture(surface: *VulkanSurface, texture: *VulkanTexture) void {
     }
     if (texture.sampler != null) c.vkDestroySampler(surface.device, texture.sampler, null);
     if (texture.ycbcr_conversion != null) {
-        var pfnDestroy = @as(?c.PFN_vkDestroySamplerYcbcrConversion, @ptrCast(c.vkGetDeviceProcAddr(surface.device, "vkDestroySamplerYcbcrConversion")));
-        if (pfnDestroy == null) pfnDestroy = @as(?c.PFN_vkDestroySamplerYcbcrConversion, @ptrCast(c.vkGetDeviceProcAddr(surface.device, "vkDestroySamplerYcbcrConversionKHR")));
+        var pfnDestroy = @as(?c.PFN_vkDestroySamplerYcbcrConversion, @ptrCast(@alignCast(c.vkGetDeviceProcAddr(surface.device, "vkDestroySamplerYcbcrConversion"))));
+        if (pfnDestroy == null) pfnDestroy = @as(?c.PFN_vkDestroySamplerYcbcrConversion, @ptrCast(@alignCast(c.vkGetDeviceProcAddr(surface.device, "vkDestroySamplerYcbcrConversionKHR"))));
         if (pfnDestroy) |fn_destroy| fn_destroy(surface.device, texture.ycbcr_conversion, null);
     }
     if (texture.view != null) c.vkDestroyImageView(surface.device, texture.view, null);
