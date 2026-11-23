@@ -18,6 +18,7 @@ pub fn build(b: *std.Build) void {
         .pic = true,
     });
     lib_mod.link_libc = true;
+    lib_mod.addImport("lib", lib_mod);
 
     if (target.result.os.tag == .linux and !target.result.abi.isAndroid()) {
         lib_mod.addIncludePath(b.path("src/platform"));

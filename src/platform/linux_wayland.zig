@@ -6,8 +6,8 @@ const wl = @cImport({
     @cInclude("xdg-shell-client-protocol.h");
 });
 
-pub const PointerEventFn = *const fn (event_type: u32, x: f32, y: f32, button: u32, state: u32) void;
-pub const KeyboardEventFn = *const fn (key: u32, state: u32, ctrl: bool) void;
+pub const PointerEventFn = *const fn (event_type: u32, x: f32, y: f32, button: u32, state: u32) callconv(.c) void;
+pub const KeyboardEventFn = *const fn (key: u32, state: u32, ctrl: bool) callconv(.c) void;
 
 pub var global_pointer_callback: ?PointerEventFn = null;
 pub var global_keyboard_callback: ?KeyboardEventFn = null;
@@ -454,5 +454,6 @@ pub fn destroyWindow(state: *WaylandWindowState) void {
 }
 
 pub fn dispatchEvents(state: *WaylandWindowState) void {
+    _ = wl.wl_display_flush(state.display);
     _ = wl.wl_display_dispatch_pending(state.display);
 }

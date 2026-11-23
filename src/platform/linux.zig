@@ -70,10 +70,10 @@ pub fn dispatchEvents(window: ?*anyopaque) void {
     }
 }
 
-pub fn setPointerCallback(cb: anytype) void {
+pub fn setPointerCallback(cb: ?wayland.PointerEventFn) void {
     wayland.setPointerCallback(cb);
 }
 
-pub fn setKeyboardCallback(cb: anytype) void {
+pub fn setKeyboardCallback(cb: ?wayland.KeyboardEventFn) void {
     wayland.setKeyboardCallback(cb);
 }

@@ -103,9 +103,31 @@ pub fn msgSend(self: ?*anyopaque, op: ?*anyopaque, args: anytype) ?*anyopaque {
     return if (p_objc_msgSend) |f| @call(.auto, f, .{ self, op } ++ args) else null;
 }
 
+pub const NSPoint = extern struct {
+    x: f64,
+    y: f64,
+};
+
+pub const PointerEventFn = *const fn (event_type: u32, x: f32, y: f32, button: u32, state: u32) callconv(.c) void;
+pub const KeyboardEventFn = *const fn (key: u32, state: u32, ctrl: bool) callconv(.c) void;
+
+var global_pointer_callback: ?PointerEventFn = null;
+var global_keyboard_callback: ?KeyboardEventFn = null;
+var current_window_height: f64 = 720.0;
+
+pub fn setPointerCallback(cb: ?PointerEventFn) void {
+    global_pointer_callback = cb;
+}
+
+pub fn setKeyboardCallback(cb: ?KeyboardEventFn) void {
+    global_keyboard_callback = cb;
+}
+
 pub fn createWindow(width: u32, height: u32) ?*anyopaque {
     if (builtin.os.tag != .macos) return null;
     if (!initDynamicLibraries()) return null;
+
+    current_window_height = @floatFromInt(height);
 
     // Ensure NSApplication is initialized and activated
     const NSApplication = getClass("NSApplication");
@@ -165,6 +187,46 @@ pub fn dispatchEvents(window: ?*anyopaque) void {
     while (true) {
         const event = msgSend(app, nextEvent, .{ mask, @as(?*anyopaque, null), mode, @as(u8, 1) });
         if (event == null) break;
+
+        if (p_objc_msgSend) |f| {
+            const Fn_msgSend_usize = *const fn (?*anyopaque, ?*anyopaque) callconv(.c) usize;
+            const type_call: Fn_msgSend_usize = @ptrCast(f);
+            const ev_type = type_call(event, sel("type"));
+
+            if (global_pointer_callback) |ptr_cb| {
+                const Fn_msgSend_point = *const fn (?*anyopaque, ?*anyopaque) callconv(.c) NSPoint;
+                const loc_call: Fn_msgSend_point = @ptrCast(f);
+                const loc = loc_call(event, sel("locationInWindow"));
+
+                const sx: f32 = @floatCast(loc.x);
+                const sy: f32 = @floatCast(if (current_window_height > loc.y) current_window_height - loc.y else 0.0);
+
+                switch (ev_type) {
+                    1 => ptr_cb(1, sx, sy, 0x110, 1), // LeftMouseDown
+                    2 => ptr_cb(2, sx, sy, 0x110, 0), // LeftMouseUp
+                    3 => ptr_cb(1, sx, sy, 0x111, 1), // RightMouseDown
+                    4 => ptr_cb(2, sx, sy, 0x111, 0), // RightMouseUp
+                    5, 6, 7 => ptr_cb(0, sx, sy, 0, 0), // MouseMoved, LeftMouseDragged, RightMouseDragged
+                    22 => ptr_cb(3, sx, sy, 0, 0), // ScrollWheel
+                    else => {},
+                }
+            }
+
+            if (global_keyboard_callback) |kb_cb| {
+                if (ev_type == 10 or ev_type == 11) { // KeyDown = 10, KeyUp = 11
+                    const Fn_msgSend_u16 = *const fn (?*anyopaque, ?*anyopaque) callconv(.c) u16;
+                    const key_call: Fn_msgSend_u16 = @ptrCast(f);
+                    const key_code = key_call(event, sel("keyCode"));
+
+                    const flags = type_call(event, sel("modifierFlags"));
+                    const ctrl = (flags & ((1 << 18) | (1 << 20))) != 0; // Control (1<<18) or Command (1<<20)
+                    const state: u32 = if (ev_type == 10) 1 else 0;
+
+                    kb_cb(@as(u32, key_code), state, ctrl);
+                }
+            }
+        }
+
         _ = msgSend(app, sendEvent, .{event});
     }
     _ = msgSend(app, updateWindows, .{});
@@ -316,6 +378,30 @@ pub fn swapBuffers(surface: *MetalSurface) void {
 pub fn createSwapchain(surface: *MetalSurface) bool {
     _ = surface;
     return true;
+}
+
+pub fn recreateSwapchain(surface: *MetalSurface, width: u32, height: u32) void {
+    if (builtin.os.tag != .macos) return;
+    surface.width = width;
+    surface.height = height;
+    current_window_height = @floatFromInt(height);
+
+    if (surface.window) |win| {
+        if (surface.view) |layer| {
+            var scale: f64 = 1.0;
+            if (p_objc_msgSend) |f| {
+                const scale_call: *const fn (?*anyopaque, ?*anyopaque) callconv(.c) f64 = @ptrCast(f);
+                scale = scale_call(win, sel("backingScaleFactor"));
+                if (scale < 1.0) scale = 1.0;
+            }
+            const setContentsScale = sel("setContentsScale:");
+            _ = msgSend(layer, setContentsScale, .{scale});
+
+            const setDrawableSize = sel("setDrawableSize:");
+            const scaled_size = [2]f64{ @as(f64, @floatFromInt(width)) * scale, @as(f64, @floatFromInt(height)) * scale };
+            _ = msgSend(layer, setDrawableSize, .{&scaled_size});
+        }
+    }
 }
 
 pub fn present(surface: *MetalSurface) void {

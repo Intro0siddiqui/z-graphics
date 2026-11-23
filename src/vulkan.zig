@@ -1450,11 +1450,11 @@ pub fn pollEvents(window: ?*anyopaque) void {
     platform.dispatchEvents(window);
 }
 
-pub fn setPointerCallback(cb: anytype) void {
+pub fn setPointerCallback(cb: ?*const fn (u32, f32, f32, u32, u32) callconv(.c) void) void {
     if (builtin.os.tag == .linux) platform.setPointerCallback(cb);
 }
 
-pub fn setKeyboardCallback(cb: anytype) void {
+pub fn setKeyboardCallback(cb: ?*const fn (u32, u32, bool) callconv(.c) void) void {
     if (builtin.os.tag == .linux) platform.setKeyboardCallback(cb);
 }
 
@@ -2591,7 +2591,6 @@ pub fn destroySurface(surface: *VulkanSurface) void {
 
 pub fn swapBuffers(surface: *VulkanSurface) void {
     if (builtin.os.tag != .linux) return;
-    platform.dispatchEvents(surface.window);
     if (surface.swapchain != null) {
         const wait_semaphore = surface.render_finished_semaphore;
         var present_info = std.mem.zeroInit(c.VkPresentInfoKHR, .{
@@ -2610,6 +2609,7 @@ pub fn swapBuffers(surface: *VulkanSurface) void {
             recreateSwapchain(surface, surface.width, surface.height);
         }
     }
+    platform.dispatchEvents(surface.window);
 }
 
 pub fn present(surface: *VulkanSurface) void {

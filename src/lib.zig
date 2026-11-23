@@ -457,17 +457,21 @@ pub export fn Zawra_GetRecentHistory(limit: u32, out_json_buf: [*]u8, out_max_le
     return 0;
 }
 
-// ── Wayland Event Routing ───────────────────────────────────────────────────────
+// ── Platform Event Routing ───────────────────────────────────────────────────────
 
 pub export fn ZG_SetPointerCallback(cb: ?*const fn (u32, f32, f32, u32, u32) callconv(.c) void) void {
     if (builtin.os.tag == .linux) {
         vulkan.setPointerCallback(cb);
+    } else if (builtin.os.tag == .macos) {
+        macos_metal.setPointerCallback(cb);
     }
 }
 
 pub export fn ZG_SetKeyboardCallback(cb: ?*const fn (u32, u32, bool) callconv(.c) void) void {
     if (builtin.os.tag == .linux) {
         vulkan.setKeyboardCallback(cb);
+    } else if (builtin.os.tag == .macos) {
+        macos_metal.setKeyboardCallback(cb);
     }
 }
 
@@ -612,6 +616,9 @@ pub export fn ZG_RecreateSwapchain(handle: ZawraGraphicsHandle, width: u32, heig
     if (builtin.os.tag == .linux) {
         const surface: *vulkan.VulkanSurface = @ptrCast(@alignCast(handle));
         vulkan.recreateSwapchain(surface, width, height);
+    } else if (builtin.os.tag == .macos) {
+        const surface: *macos_metal.MetalSurface = @ptrCast(@alignCast(handle));
+        macos_metal.recreateSwapchain(surface, width, height);
     }
 }
 

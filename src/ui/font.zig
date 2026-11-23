@@ -7,27 +7,53 @@ pub const UIVertex = extern struct {
     half_size: [2]f32, // half-width and half-height (w/2, h/2)
     color: [4]f32, // fill RGBA color
     border_color: [4]f32, // border RGBA color
-    params: [4]f32, // x: corner_radius, y: border_width, z: mode (0=SDF shape, 1=font glyph, 2=textured quad), w: unused
+    params: [4]f32, // x: corner_radius, y: border_width, z: mode (0=SDF, 1=glyph, 2=textured, 3=halo/glow, 4=glass), w: extra (glow_spread)
 };
 
 pub const raw_font_data = @embedFile("font_raw.bin");
+pub const raw_atlas_1024 = @embedFile("ui_atlas_1024.rgba");
 
-pub const ATLAS_WIDTH: u32 = 128;
-pub const ATLAS_HEIGHT: u32 = 256;
+pub const ATLAS_WIDTH: u32 = 1024;
+pub const ATLAS_HEIGHT: u32 = 1024;
 pub const GLYPH_WIDTH: u32 = 8;
 pub const GLYPH_HEIGHT: u32 = 16;
 pub const GLYPHS_PER_ROW: u32 = 16;
 pub const GLYPH_ROWS: u32 = 16;
 
+pub const AtlasUV = struct {
+    u0: f32,
+    v0: f32,
+    u1: f32,
+    v1: f32,
+
+    pub const circuit_bg = AtlasUV{ .u0 = 0.0, .v0 = 0.25, .u1 = 1.0, .v1 = 1.0 };
+    pub const logo_sidebar = AtlasUV{ .u0 = 0.25, .v0 = 0.0, .u1 = 0.375, .v1 = 0.125 };
+    pub const hero_emblem = AtlasUV{ .u0 = 0.375, .v0 = 0.0, .u1 = 0.5, .v1 = 0.125 };
+    pub const icon_github = AtlasUV{ .u0 = 0.5, .v0 = 0.0, .u1 = 0.5625, .v1 = 0.0625 };
+    pub const icon_rust = AtlasUV{ .u0 = 0.5625, .v0 = 0.0, .u1 = 0.625, .v1 = 0.0625 };
+    pub const icon_wayland = AtlasUV{ .u0 = 0.625, .v0 = 0.0, .u1 = 0.6875, .v1 = 0.0625 };
+    pub const icon_hajr = AtlasUV{ .u0 = 0.6875, .v0 = 0.0, .u1 = 0.75, .v1 = 0.0625 };
+    pub const icon_sparkle = AtlasUV{ .u0 = 0.75, .v0 = 0.0, .u1 = 0.78125, .v1 = 0.03125 };
+    pub const icon_toggle = AtlasUV{ .u0 = 0.78125, .v0 = 0.0, .u1 = 0.8125, .v1 = 0.03125 };
+};
+
+pub fn getAtlasRGBA() []const u8 {
+    return raw_atlas_1024;
+}
+
 pub const FontMetrics = struct {
-    widths: [256]f32,
+    first_cols: [256]u8,
+    last_cols: [256]u8,
+    advances: [256]f32,
 
     pub fn init() FontMetrics {
         var metrics: FontMetrics = undefined;
         for (0..256) |c_idx| {
             const c: u8 = @intCast(c_idx);
             if (c == ' ') {
-                metrics.widths[c_idx] = 5.0;
+                metrics.first_cols[c_idx] = 0;
+                metrics.last_cols[c_idx] = 0;
+                metrics.advances[c_idx] = 5.0;
                 continue;
             }
             const offset = c_idx * 16;
@@ -53,10 +79,15 @@ pub const FontMetrics = struct {
             }
 
             if (first_col) |first| {
-                const w = @as(f32, @floatFromInt(last_col.? - first + 2));
-                metrics.widths[c_idx] = @min(8.0, @max(4.0, w));
+                const last = last_col.?;
+                metrics.first_cols[c_idx] = @intCast(first);
+                metrics.last_cols[c_idx] = @intCast(last);
+                const w = @as(f32, @floatFromInt(last - first + 1));
+                metrics.advances[c_idx] = w + 1.0;
             } else {
-                metrics.widths[c_idx] = 6.0;
+                metrics.first_cols[c_idx] = 0;
+                metrics.last_cols[c_idx] = 7;
+                metrics.advances[c_idx] = 6.0;
             }
         }
         return metrics;
@@ -72,41 +103,6 @@ pub fn getMetrics() *const FontMetrics {
     return &global_metrics.?;
 }
 
-pub fn generateAtlasRGBA() [ATLAS_WIDTH * ATLAS_HEIGHT * 4]u8 {
-    var pixels: [ATLAS_WIDTH * ATLAS_HEIGHT * 4]u8 = [_]u8{0} ** (ATLAS_WIDTH * ATLAS_HEIGHT * 4);
-
-    for (0..256) |c_idx| {
-        const col: u32 = @intCast(c_idx % GLYPHS_PER_ROW);
-        const row: u32 = @intCast(c_idx / GLYPHS_PER_ROW);
-        const glyph_offset = c_idx * 16;
-        const glyph_bytes = raw_font_data[glyph_offset .. glyph_offset + 16];
-
-        for (glyph_bytes, 0..) |row_byte, y| {
-            var x: u32 = 0;
-            while (x < 8) : (x += 1) {
-                const bit = (row_byte >> @intCast(7 - x)) & 1;
-                const px = col * GLYPH_WIDTH + x;
-                const py = row * GLYPH_HEIGHT + @as(u32, @intCast(y));
-                const p_idx = (py * ATLAS_WIDTH + px) * 4;
-
-                if (bit != 0) {
-                    pixels[p_idx + 0] = 255;
-                    pixels[p_idx + 1] = 255;
-                    pixels[p_idx + 2] = 255;
-                    pixels[p_idx + 3] = 255;
-                } else {
-                    pixels[p_idx + 0] = 0;
-                    pixels[p_idx + 1] = 0;
-                    pixels[p_idx + 2] = 0;
-                    pixels[p_idx + 3] = 0;
-                }
-            }
-        }
-    }
-
-    return pixels;
-}
-
 pub fn getTextWidth(text: []const u8, scale: f32) f32 {
     const metrics = getMetrics();
     var width: f32 = 0;
@@ -114,10 +110,9 @@ pub fn getTextWidth(text: []const u8, scale: f32) f32 {
     while (i < text.len) {
         const b = text[i];
         if (b < 128) {
-            width += metrics.widths[b] * scale;
+            width += metrics.advances[b] * scale;
             i += 1;
         } else {
-            // Basic UTF-8 skip (treat multi-byte glyphs as ~12px wide icon)
             const seq_len = std.unicode.utf8ByteSequenceLength(b) catch 1;
             width += 10.0 * scale;
             i += seq_len;
@@ -144,19 +139,28 @@ pub fn appendTextQuads(
         if (b < 128) {
             i += 1;
             if (b == ' ') {
-                cur_x += metrics.widths[' '] * scale;
+                cur_x += metrics.advances[' '] * scale;
                 continue;
             }
+
+            const first_c = metrics.first_cols[b];
+            const last_c = metrics.last_cols[b];
+            const glyph_w_px = @as(f32, @floatFromInt(last_c - first_c + 1));
 
             const col: f32 = @floatFromInt(b % 16);
             const row: f32 = @floatFromInt(b / 16);
 
-            const uv_u0 = (col * 8.0) / @as(f32, @floatFromInt(ATLAS_WIDTH));
-            const uv_v0 = (row * 16.0) / @as(f32, @floatFromInt(ATLAS_HEIGHT));
-            const uv_u1 = ((col + 1.0) * 8.0) / @as(f32, @floatFromInt(ATLAS_WIDTH));
-            const uv_v1 = ((row + 1.0) * 16.0) / @as(f32, @floatFromInt(ATLAS_HEIGHT));
+            const px0 = col * 8.0 + @as(f32, @floatFromInt(first_c));
+            const px1 = col * 8.0 + @as(f32, @floatFromInt(last_c + 1));
+            const py0 = row * 16.0;
+            const py1 = (row + 1.0) * 16.0;
 
-            const char_w = 8.0 * scale;
+            const uv_u0 = px0 / @as(f32, @floatFromInt(ATLAS_WIDTH));
+            const uv_v0 = py0 / @as(f32, @floatFromInt(ATLAS_HEIGHT));
+            const uv_u1 = px1 / @as(f32, @floatFromInt(ATLAS_WIDTH));
+            const uv_v1 = py1 / @as(f32, @floatFromInt(ATLAS_HEIGHT));
+
+            const char_w = glyph_w_px * scale;
             const char_h = 16.0 * scale;
             const x0 = cur_x;
             const y0 = y;
@@ -166,11 +170,10 @@ pub fn appendTextQuads(
             const half_w = char_w * 0.5;
             const half_h = char_h * 0.5;
 
-            // 2 Triangles for the glyph quad (Mode = 1.0 for font glyph)
-            const p = [4]f32{ 0.0, 0.0, 1.0, 0.0 }; // mode = 1.0
+            // Mode = 1.0 for font glyph
+            const p = [4]f32{ 0.0, 0.0, 1.0, 0.0 };
             const bcol = [4]f32{ 0.0, 0.0, 0.0, 0.0 };
 
-            // Triangle 1: (x0, y0), (x1, y0), (x1, y1)
             try vertices.append(allocator, UIVertex{
                 .position = .{ x0, y0 },
                 .tex_coord = .{ uv_u0, uv_v0 },
@@ -199,7 +202,6 @@ pub fn appendTextQuads(
                 .params = p,
             });
 
-            // Triangle 2: (x0, y0), (x1, y1), (x0, y1)
             try vertices.append(allocator, UIVertex{
                 .position = .{ x0, y0 },
                 .tex_coord = .{ uv_u0, uv_v0 },
@@ -228,12 +230,11 @@ pub fn appendTextQuads(
                 .params = p,
             });
 
-            cur_x += metrics.widths[b] * scale;
+            cur_x += metrics.advances[b] * scale;
         } else {
-            // UTF-8 multibyte character: advance by icon width
             const seq_len = std.unicode.utf8ByteSequenceLength(b) catch 1;
             i += seq_len;
-            cur_x += 12.0 * scale;
+            cur_x += 10.0 * scale;
         }
     }
 }
