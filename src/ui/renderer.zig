@@ -10,7 +10,7 @@ pub fn setGlobalUIRenderer(renderer: ?*UIRenderer) void {
     global_ui_renderer = renderer;
 }
 
-fn wpeTextureCallback(tex: ?zgraphics.ZawraGraphicsTexture) callconv(.c) void {
+pub fn wpeTextureCallback(tex: ?zgraphics.ZawraGraphicsTexture) callconv(.c) void {
     if (global_ui_renderer) |renderer| {
         renderer.setWpeTexture(tex);
     }

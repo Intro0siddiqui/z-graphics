@@ -3,6 +3,17 @@ const zgraphics = @import("lib");
 const state_mod = @import("state.zig");
 const renderer_mod = @import("renderer.zig");
 
+extern "c" fn Zawra_TakePendingDMABuf(
+    out_fd: *c_int,
+    out_w: *u32,
+    out_h: *u32,
+    out_stride: *u32,
+    out_fourcc: *u32,
+    out_modifier: *u64,
+) callconv(.c) bool;
+
+extern "c" fn Zawra_ResizeViewport(width: u32, height: u32) callconv(.c) void;
+
 var global_shell_state: ?*state_mod.ShellState = null;
 
 fn onPointerEvent(event_type: u32, x: f32, y: f32, button: u32, state: u32) callconv(.c) void {
@@ -70,11 +81,13 @@ pub fn runShell(width: u32, height: u32, headless: bool, max_frames: ?usize, tar
     // Register global shell state & callbacks for input and DMA-BUF texture routing
     global_shell_state = &shell_state;
     renderer_mod.setGlobalUIRenderer(&ui_renderer);
+    zgraphics.ZG_RegisterWpeTextureSetter(&renderer_mod.wpeTextureCallback);
     zgraphics.ZG_SetPointerCallback(&onPointerEvent);
     zgraphics.ZG_SetKeyboardCallback(&onKeyboardEvent);
     defer {
         zgraphics.ZG_SetPointerCallback(null);
         zgraphics.ZG_SetKeyboardCallback(null);
+        zgraphics.ZG_RegisterWpeTextureSetter(null);
         renderer_mod.setGlobalUIRenderer(null);
         global_shell_state = null;
     }
@@ -98,8 +111,25 @@ pub fn runShell(width: u32, height: u32, headless: bool, max_frames: ?usize, tar
                 if (new_w > 0 and new_h > 0 and (new_w != shell_state.window_width or new_h != shell_state.window_height)) {
                     shell_state.setWindowSize(new_w, new_h);
                     zgraphics.ZG_RecreateSwapchain(surface, new_w, new_h);
+                    if (new_w > 260) {
+                        Zawra_ResizeViewport(new_w - 260, new_h);
+                    }
                     std.debug.print("[ZAWRA-SHELL] Window resized to {}x{}\n", .{ new_w, new_h });
                 }
+            }
+        }
+
+        // Check pending DMA-BUF frame from WebKit (Pass 1 live texture)
+        var dmabuf_fd: c_int = -1;
+        var dmabuf_w: u32 = 0;
+        var dmabuf_h: u32 = 0;
+        var dmabuf_stride: u32 = 0;
+        var dmabuf_fourcc: u32 = 0;
+        var dmabuf_modifier: u64 = 0;
+        if (Zawra_TakePendingDMABuf(&dmabuf_fd, &dmabuf_w, &dmabuf_h, &dmabuf_stride, &dmabuf_fourcc, &dmabuf_modifier)) {
+            if (dmabuf_fd >= 0 and dmabuf_w > 0 and dmabuf_h > 0) {
+                _ = zgraphics.ZG_BindWpeDMABuf(surface, dmabuf_fd, dmabuf_w, dmabuf_h);
+                _ = std.os.linux.close(dmabuf_fd);
             }
         }
 
