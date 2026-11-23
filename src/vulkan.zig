@@ -1216,6 +1216,7 @@ const c = struct {
     pub const VK_SAMPLER_YCBCR_MODEL_CONVERSION_YCBCR_709 = 1;
     pub const VK_SAMPLER_YCBCR_RANGE_ITU_NARROW = 2;
     pub const VK_COMPONENT_SWIZZLE_IDENTITY = 0;
+    pub const VK_COMPONENT_SWIZZLE_ONE = 2;
     pub const VK_CHROMA_LOCATION_COSITED_EVEN = 0;
 
     pub const VkFramebuffer = ?*anyopaque;
@@ -4617,12 +4618,19 @@ fn finishImportedTexture(
     height: u32,
     vk_format: c.VkFormat,
     format: zgraphics.ZawraGraphicsTextureFormat,
+    force_opaque_alpha: bool,
 ) ?*VulkanTexture {
     const view_info = std.mem.zeroInit(c.VkImageViewCreateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
         .image = image,
         .viewType = c.VK_IMAGE_VIEW_TYPE_2D,
         .format = vk_format,
+        .components = .{
+            .r = @as(u32, c.VK_COMPONENT_SWIZZLE_IDENTITY),
+            .g = @as(u32, c.VK_COMPONENT_SWIZZLE_IDENTITY),
+            .b = @as(u32, c.VK_COMPONENT_SWIZZLE_IDENTITY),
+            .a = @as(u32, if (force_opaque_alpha) c.VK_COMPONENT_SWIZZLE_ONE else c.VK_COMPONENT_SWIZZLE_IDENTITY),
+        },
         .subresourceRange = .{ .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1 },
     });
     var view: c.VkImageView = null;
@@ -4745,7 +4753,7 @@ pub fn importTextureFD(surface: *VulkanSurface, fd: i32, desc: *const zgraphics.
             continue;
         }
 
-        const tex = finishImportedTexture(surface, image, memory, desc.width, desc.height, c.VK_FORMAT_R8G8B8A8_UNORM, desc.format);
+        const tex = finishImportedTexture(surface, image, memory, desc.width, desc.height, c.VK_FORMAT_R8G8B8A8_UNORM, desc.format, false);
         if (tex != null) {
             if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] importTextureFD: success, fd={d} {}x{} handleType=0x{x} tiling={d}\n", .{ fd, desc.width, desc.height, candidate.handle_type, candidate.tiling });
             return tex;
@@ -4877,7 +4885,8 @@ pub fn importTextureDMABuf(
         return null;
     }
 
-    const tex = finishImportedTexture(surface, image, memory, info.width, info.height, vk_format, .R8G8B8A8_Unorm);
+    const is_xrgb = (info.drm_format == c.DRM_FORMAT_XRGB8888 or info.drm_format == c.DRM_FORMAT_XBGR8888 or vk_format == c.VK_FORMAT_B8G8R8A8_UNORM);
+    const tex = finishImportedTexture(surface, image, memory, info.width, info.height, vk_format, .R8G8B8A8_Unorm, is_xrgb);
     if (tex != null) {
         if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] importTextureDMABuf: success fd={d} {}x{} stride={d} offset={d} format=0x{x} modifier=0x{x}\n", .{ info.fd, info.width, info.height, info.stride, info.offset, info.drm_format, info.drm_modifier });
     }
