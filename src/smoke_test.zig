@@ -229,10 +229,9 @@ fn testExportSurfaceDMABuf(surface: zgraphics.ZawraGraphicsHandle) void {
                 zgraphics.ZG_DestroyTexture(off, tex);
             } else {
                 std.debug.print("testExportSurfaceDMABuf: note: re-import returned null (GPU driver dependent)\n", .{});
-            }
-
-            if (offscreen_info.fd >= 0) {
-                _ = std.os.linux.close(offscreen_info.fd);
+                if (offscreen_info.fd >= 0) {
+                    _ = std.os.linux.close(offscreen_info.fd);
+                }
             }
         } else {
             std.debug.print("testExportSurfaceDMABuf: FAIL - failed to export offscreen DMA-BUF\n", .{});
