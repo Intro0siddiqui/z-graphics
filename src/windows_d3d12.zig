@@ -764,14 +764,16 @@ pub fn setLayerOrder(order: [*]const u32, count: u32) void {
 
 pub const D3D12ShaderModule = struct {
     bytecode: ?*anyopaque,
+    len: usize = 0,
 };
 
 pub fn createShaderModulePublic(surface: *D3D12Surface, spirv: [*]const u8, spirv_len: usize) ?*D3D12ShaderModule {
     if (builtin.os.tag != .windows) return null;
     _ = surface;
-    _ = spirv;
-    _ = spirv_len;
-    return null;
+    if (spirv_len == 0) return null;
+    const mod = std.heap.page_allocator.create(D3D12ShaderModule) catch return null;
+    mod.* = .{ .bytecode = @ptrCast(@constCast(spirv)), .len = spirv_len };
+    return mod;
 }
 
 pub fn destroyShaderModulePublic(surface: *D3D12Surface, module: *D3D12ShaderModule) void {
@@ -782,10 +784,13 @@ pub fn destroyShaderModulePublic(surface: *D3D12Surface, module: *D3D12ShaderMod
 
 pub fn createPipelineFromShadersPublic(surface: *D3D12Surface, vert: *D3D12ShaderModule, frag: *D3D12ShaderModule) ?*D3D12Pipeline {
     if (builtin.os.tag != .windows) return null;
-    _ = surface;
-    _ = vert;
-    _ = frag;
-    return null;
+    const desc = zgraphics.PipelineDesc{
+        .vertex_shader = @ptrCast(vert.bytecode),
+        .vertex_shader_len = vert.len,
+        .pixel_shader = @ptrCast(frag.bytecode),
+        .pixel_shader_len = frag.len,
+    };
+    return createPipeline(surface, &desc);
 }
 
 pub fn createUniformBuffer(surface: *D3D12Surface, size: usize) ?*D3D12Buffer {
@@ -801,10 +806,17 @@ pub fn uploadUniformBuffer(surface: *D3D12Surface, buffer: *D3D12Buffer, data: ?
 
 pub fn cmdBindUniformBuffer(cmd: *D3D12CommandBuffer, buffer: *D3D12Buffer, binding: u32, offset: u64) void {
     if (builtin.os.tag != .windows) return;
-    _ = cmd;
-    _ = buffer;
-    _ = binding;
     _ = offset;
+    if (cmd.cmd_list) |cmd_list| {
+        if (buffer.resource) |res| {
+            const res_vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(res))).*;
+            const GetGPUVirtualAddress = @as(*const fn (*anyopaque) callconv(.c) u64, @ptrCast(res_vtbl[8]));
+            const gpu_addr = GetGPUVirtualAddress(res);
+            const vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(cmd_list))).*;
+            const SetGraphicsRootConstantBufferView = @as(*const fn (*anyopaque, u32, u64) callconv(.c) void, @ptrCast(vtbl[36]));
+            SetGraphicsRootConstantBufferView(cmd_list, binding, gpu_addr);
+        }
+    }
 }
 
 pub fn createMRTSurface(surface: *D3D12Surface, width: u32, height: u32, attachment_count: u32) ?*anyopaque {
@@ -875,29 +887,65 @@ pub fn cmdSetStencilMask(cmd: *D3D12CommandBuffer, face_mask: u32, reference: u3
     _ = reference;
 }
 
+pub const D3D12_VIEWPORT = extern struct {
+    TopLeftX: f32,
+    TopLeftY: f32,
+    Width: f32,
+    Height: f32,
+    MinDepth: f32,
+    MaxDepth: f32,
+};
+
+pub const D3D12_RECT = extern struct {
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+};
+
 pub fn cmdCopyTexture(cmd: *D3D12CommandBuffer, src: *D3D12Texture, dst: *D3D12Texture) void {
     if (builtin.os.tag != .windows) return;
-    _ = cmd;
-    _ = src;
-    _ = dst;
+    if (cmd.cmd_list) |cmd_list| {
+        if (src.resource) |s_res| {
+            if (dst.resource) |d_res| {
+                const vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(cmd_list))).*;
+                const CopyResource = @as(*const fn (*anyopaque, *anyopaque, *anyopaque) callconv(.c) void, @ptrCast(vtbl[26]));
+                CopyResource(cmd_list, d_res, s_res);
+            }
+        }
+    }
 }
 
 pub fn cmdSetViewport(cmd: *D3D12CommandBuffer, x: f32, y: f32, width: f32, height: f32, min_depth: f32, max_depth: f32) void {
-    _ = cmd;
-    _ = x;
-    _ = y;
-    _ = width;
-    _ = height;
-    _ = min_depth;
-    _ = max_depth;
+    if (builtin.os.tag != .windows) return;
+    if (cmd.cmd_list) |cmd_list| {
+        const vp = D3D12_VIEWPORT{
+            .TopLeftX = x,
+            .TopLeftY = y,
+            .Width = width,
+            .Height = height,
+            .MinDepth = min_depth,
+            .MaxDepth = max_depth,
+        };
+        const vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(cmd_list))).*;
+        const RSSetViewports = @as(*const fn (*anyopaque, u32, *const D3D12_VIEWPORT) callconv(.c) void, @ptrCast(vtbl[40]));
+        RSSetViewports(cmd_list, 1, &vp);
+    }
 }
 
 pub fn cmdSetScissor(cmd: *D3D12CommandBuffer, x: i32, y: i32, width: u32, height: u32) void {
-    _ = cmd;
-    _ = x;
-    _ = y;
-    _ = width;
-    _ = height;
+    if (builtin.os.tag != .windows) return;
+    if (cmd.cmd_list) |cmd_list| {
+        const rect = D3D12_RECT{
+            .left = x,
+            .top = y,
+            .right = x + @as(i32, @intCast(width)),
+            .bottom = y + @as(i32, @intCast(height)),
+        };
+        const vtbl = @as(*const [*]const *anyopaque, @ptrCast(@alignCast(cmd_list))).*;
+        const RSSetScissorRects = @as(*const fn (*anyopaque, u32, *const D3D12_RECT) callconv(.c) void, @ptrCast(vtbl[41]));
+        RSSetScissorRects(cmd_list, 1, &rect);
+    }
 }
 
 pub fn getDeviceProperty(handle: anytype, name: u32) u32 {
