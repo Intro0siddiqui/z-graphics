@@ -18,7 +18,7 @@ fn onPointerEvent(event_type: u32, x: f32, y: f32, button: u32, state: u32) call
         const vp = shell.layout.viewport_rect;
         if (vp.contains(x, y)) {
             const active_tab = shell.getActiveTabConst();
-            const is_start = if (active_tab) |tab| state_mod.isStartPage(tab.url) else true;
+            const is_start = if (active_tab) |tab| state_mod.isStartPage(tab.getUrl()) else true;
             if (!is_start) {
                 const local_x: f64 = @floatCast(x - vp.x);
                 const local_y: f64 = @floatCast(y - vp.y);
@@ -36,7 +36,7 @@ fn onKeyboardEvent(key: u32, state: u32, ctrl: bool) callconv(.c) void {
         // Forward keystrokes to WPE only when neither omnibar nor search_hud is focused
         if (shell.focus == .none) {
             const active_tab = shell.getActiveTabConst();
-            const is_start = if (active_tab) |tab| state_mod.isStartPage(tab.url) else true;
+            const is_start = if (active_tab) |tab| state_mod.isStartPage(tab.getUrl()) else true;
             if (!is_start) {
                 const mods: u32 = if (ctrl) 4 else 0;
                 zgraphics.wpe_view_event_keyboard(key, state, mods);

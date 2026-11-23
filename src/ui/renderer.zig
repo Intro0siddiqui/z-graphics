@@ -520,7 +520,7 @@ pub const UIRenderer = struct {
         self.vertices.clearRetainingCapacity();
 
         const active_tab = state.getActiveTabConst();
-        const is_start = if (active_tab) |tab| state_mod.isStartPage(tab.url) else true;
+        const is_start = if (active_tab) |tab| state_mod.isStartPage(tab.getUrl()) else true;
         const active_tex = self.wpe_texture orelse zgraphics.ZG_GetWpeTexture();
         var wpe_vertex_count: u32 = 0;
 
