@@ -526,7 +526,7 @@ pub const UIRenderer = struct {
 
         // ── 1. Viewport: WPE DMA-BUF Live Quad vs Start Page ─────────────────────────
         const vp = state.layout.viewport_rect;
-        if (!is_start and active_tex != null) {
+        if (active_tex != null) {
             // Draw live WPE WebKit frame as textured quad (Mode 2)
             const half_w = vp.w * 0.5;
             const half_h = vp.h * 0.5;

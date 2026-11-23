@@ -36,6 +36,7 @@ pub fn build(b: *std.Build) void {
         .name = "z-graphics",
         .root_module = lib_mod,
     });
+    static_lib.bundle_compiler_rt = true;
     b.installArtifact(static_lib);
 
     // Smoke test executable
@@ -95,6 +96,7 @@ pub fn build(b: *std.Build) void {
         .name = "zawra-ui",
         .root_module = ui_mod,
     });
+    ui_lib.bundle_compiler_rt = true;
     b.installArtifact(ui_lib);
 
     // Zawra Native Zig Browser Shell Executable (standalone test runner)

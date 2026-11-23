@@ -3,6 +3,16 @@ const zgraphics = @import("lib");
 const state_mod = @import("state.zig");
 const renderer_mod = @import("renderer.zig");
 
+pub const ZawraPendingWpeFrame = extern struct {
+    dmabuf: zgraphics.ZawraGraphicsDMABufInfo,
+    view: ?*anyopaque,
+    buffer: ?*anyopaque,
+};
+
+extern "c" fn Zawra_PollPendingWpeFrame(out_frame: *ZawraPendingWpeFrame) callconv(.c) bool;
+extern "c" fn Zawra_NotifyWpeBufferRendered(view: ?*anyopaque, buffer: ?*anyopaque) callconv(.c) void;
+extern "c" fn Zawra_ResizeViewport(width: u32, height: u32) callconv(.c) void;
+
 extern "c" fn Zawra_TakePendingDMABuf(
     out_fd: *c_int,
     out_w: *u32,
@@ -11,8 +21,6 @@ extern "c" fn Zawra_TakePendingDMABuf(
     out_fourcc: *u32,
     out_modifier: *u64,
 ) callconv(.c) bool;
-
-extern "c" fn Zawra_ResizeViewport(width: u32, height: u32) callconv(.c) void;
 
 var global_shell_state: ?*state_mod.ShellState = null;
 
@@ -57,7 +65,7 @@ fn onKeyboardEvent(key: u32, state: u32, ctrl: bool) callconv(.c) void {
 }
 
 pub fn runShell(width: u32, height: u32, headless: bool, max_frames: ?usize, target_url: ?[]const u8) !void {
-    const allocator = std.heap.page_allocator;
+    const allocator = std.heap.c_allocator;
     std.debug.print("[ZAWRA-SHELL] Initializing native Zig UI Shell ({}x{})...\n", .{ width, height });
 
     if (!zgraphics.ZG_Initialize()) {
@@ -78,6 +86,14 @@ pub fn runShell(width: u32, height: u32, headless: bool, max_frames: ?usize, tar
     var ui_renderer = try renderer_mod.UIRenderer.init(allocator, surface);
     defer ui_renderer.deinit();
 
+    var active_wpe_tex: ?zgraphics.ZawraGraphicsTexture = null;
+    var active_wpe_view: ?*anyopaque = null;
+    var active_wpe_buf: ?*anyopaque = null;
+
+    var old_wpe_tex: ?zgraphics.ZawraGraphicsTexture = null;
+    var old_wpe_view: ?*anyopaque = null;
+    var old_wpe_buf: ?*anyopaque = null;
+
     // Register global shell state & callbacks for input and DMA-BUF texture routing
     global_shell_state = &shell_state;
     renderer_mod.setGlobalUIRenderer(&ui_renderer);
@@ -90,6 +106,23 @@ pub fn runShell(width: u32, height: u32, headless: bool, max_frames: ?usize, tar
         zgraphics.ZG_RegisterWpeTextureSetter(null);
         renderer_mod.setGlobalUIRenderer(null);
         global_shell_state = null;
+
+        if (active_wpe_buf != null) {
+            if (active_wpe_tex) |at| {
+                zgraphics.ZG_DestroyTexture(surface, at);
+            }
+            Zawra_NotifyWpeBufferRendered(active_wpe_view, active_wpe_buf);
+            active_wpe_tex = null;
+            active_wpe_buf = null;
+        }
+        if (old_wpe_buf != null) {
+            if (old_wpe_tex) |ot| {
+                zgraphics.ZG_DestroyTexture(surface, ot);
+            }
+            Zawra_NotifyWpeBufferRendered(old_wpe_view, old_wpe_buf);
+            old_wpe_tex = null;
+            old_wpe_buf = null;
+        }
     }
 
     if (target_url) |url| {
@@ -103,6 +136,75 @@ pub fn runShell(width: u32, height: u32, headless: bool, max_frames: ?usize, tar
     const limit = max_frames orelse 0;
 
     while (!is_limited or frame_count < limit) : (frame_count += 1) {
+        // At top of frame: check mailbox for incoming WPE DMA-BUF frame
+        var frame_info: ZawraPendingWpeFrame = undefined;
+        var has_new_frame = false;
+        if (Zawra_PollPendingWpeFrame(&frame_info)) {
+            if (zgraphics.ZG_ImportTextureDMABuf(surface, &frame_info.dmabuf)) |new_tex| {
+                if (old_wpe_buf != null) {
+                    if (old_wpe_tex) |ot| {
+                        zgraphics.ZG_DestroyTexture(surface, ot);
+                    }
+                    Zawra_NotifyWpeBufferRendered(old_wpe_view, old_wpe_buf);
+                    old_wpe_tex = null;
+                    old_wpe_view = null;
+                    old_wpe_buf = null;
+                }
+
+                old_wpe_tex = active_wpe_tex;
+                old_wpe_view = active_wpe_view;
+                old_wpe_buf = active_wpe_buf;
+
+                active_wpe_tex = new_tex;
+                active_wpe_view = frame_info.view;
+                active_wpe_buf = frame_info.buffer;
+                zgraphics.ZG_SetWpeTexture(active_wpe_tex);
+                has_new_frame = true;
+                std.debug.print("[ZAWRA-SHELL] >>> Imported WPE DMA-BUF Frame into Vulkan Pass 1: {}x{} <<<\n", .{ frame_info.dmabuf.width, frame_info.dmabuf.height });
+            }
+        } else {
+            // Fallback for legacy mailbox
+            var dmabuf_fd: c_int = -1;
+            var dmabuf_w: u32 = 0;
+            var dmabuf_h: u32 = 0;
+            var dmabuf_stride: u32 = 0;
+            var dmabuf_fourcc: u32 = 0;
+            var dmabuf_modifier: u64 = 0;
+            if (Zawra_TakePendingDMABuf(&dmabuf_fd, &dmabuf_w, &dmabuf_h, &dmabuf_stride, &dmabuf_fourcc, &dmabuf_modifier)) {
+                if (dmabuf_fd >= 0 and dmabuf_w > 0 and dmabuf_h > 0) {
+                    const info = zgraphics.ZawraGraphicsDMABufInfo{
+                        .fd = dmabuf_fd,
+                        .width = dmabuf_w,
+                        .height = dmabuf_h,
+                        .stride = if (dmabuf_stride > 0) dmabuf_stride else dmabuf_w * 4,
+                        .offset = 0,
+                        .drm_format = dmabuf_fourcc,
+                        .drm_modifier = dmabuf_modifier,
+                    };
+                    if (zgraphics.ZG_ImportTextureDMABuf(surface, &info)) |new_tex| {
+                        if (old_wpe_buf != null) {
+                            if (old_wpe_tex) |ot| {
+                                zgraphics.ZG_DestroyTexture(surface, ot);
+                            }
+                            Zawra_NotifyWpeBufferRendered(old_wpe_view, old_wpe_buf);
+                            old_wpe_tex = null;
+                            old_wpe_view = null;
+                            old_wpe_buf = null;
+                        }
+                        old_wpe_tex = active_wpe_tex;
+                        old_wpe_view = active_wpe_view;
+                        old_wpe_buf = active_wpe_buf;
+
+                        active_wpe_tex = new_tex;
+                        active_wpe_view = null;
+                        active_wpe_buf = null;
+                        zgraphics.ZG_SetWpeTexture(active_wpe_tex);
+                        has_new_frame = true;
+                    }
+                }
+            }
+        }
+
         if (window) |win| {
             zgraphics.ZG_PollEvents(win);
             var new_w: u32 = 0;
@@ -119,25 +221,23 @@ pub fn runShell(width: u32, height: u32, headless: bool, max_frames: ?usize, tar
             }
         }
 
-        // Check pending DMA-BUF frame from WebKit (Pass 1 live texture)
-        var dmabuf_fd: c_int = -1;
-        var dmabuf_w: u32 = 0;
-        var dmabuf_h: u32 = 0;
-        var dmabuf_stride: u32 = 0;
-        var dmabuf_fourcc: u32 = 0;
-        var dmabuf_modifier: u64 = 0;
-        if (Zawra_TakePendingDMABuf(&dmabuf_fd, &dmabuf_w, &dmabuf_h, &dmabuf_stride, &dmabuf_fourcc, &dmabuf_modifier)) {
-            if (dmabuf_fd >= 0 and dmabuf_w > 0 and dmabuf_h > 0) {
-                _ = zgraphics.ZG_BindWpeDMABuf(surface, dmabuf_fd, dmabuf_w, dmabuf_h);
-                _ = std.os.linux.close(dmabuf_fd);
-            }
-        }
-
         // Animate or update layout if needed
         shell_state.recomputeLayout();
 
-        // Render complete Zawra UI Shell frame
+        // Render complete Zawra UI Shell frame (Pass 1 Viewport Quad + Pass 2 UI Elements, fence wait + swap)
         ui_renderer.render(&shell_state);
+
+        // Hold onto active_wpe_buf until the next frame's vkWaitForFences / swap finishes,
+        // then destroy old VulkanTexture and notify Rust
+        if (has_new_frame and old_wpe_buf != null) {
+            if (old_wpe_tex) |ot| {
+                zgraphics.ZG_DestroyTexture(surface, ot);
+            }
+            Zawra_NotifyWpeBufferRendered(old_wpe_view, old_wpe_buf);
+            old_wpe_tex = null;
+            old_wpe_view = null;
+            old_wpe_buf = null;
+        }
 
         if (is_limited and frame_count + 1 >= limit) break;
 
@@ -166,7 +266,7 @@ pub export fn roundq(x: f128) f128 {
 }
 
 pub fn runShellFromArgs(init: std.process.Init.Minimal) !void {
-    const allocator = std.heap.page_allocator;
+    const allocator = std.heap.c_allocator;
 
     var args = try init.args.iterateAllocator(allocator);
     defer args.deinit();

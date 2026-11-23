@@ -217,21 +217,12 @@ fn testExportSurfaceDMABuf(surface: zgraphics.ZawraGraphicsHandle) void {
             }
 
             // Test importing the exported DMA-BUF texture back
-            const import_desc = zgraphics.ZawraGraphicsTextureDesc{
-                .format = .R8G8B8A8_Unorm,
-                .width = offscreen_info.width,
-                .height = offscreen_info.height,
-                .external_handle = null,
-            };
-            const imported = zgraphics.ZG_ImportTextureDMABuf(off, offscreen_info.fd, &offscreen_info, &import_desc);
+            const imported = zgraphics.ZG_ImportTextureDMABuf(off, &offscreen_info);
             if (imported) |tex| {
                 std.debug.print("testExportSurfaceDMABuf: PASS - imported DMA-BUF texture back: {any}\n", .{tex});
                 zgraphics.ZG_DestroyTexture(off, tex);
             } else {
                 std.debug.print("testExportSurfaceDMABuf: note: re-import returned null (GPU driver dependent)\n", .{});
-                if (offscreen_info.fd >= 0) {
-                    _ = std.os.linux.close(offscreen_info.fd);
-                }
             }
         } else {
             std.debug.print("testExportSurfaceDMABuf: FAIL - failed to export offscreen DMA-BUF\n", .{});

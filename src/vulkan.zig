@@ -4426,7 +4426,7 @@ fn createYUVTexture(surface: *VulkanSurface, desc: *const zgraphics.ZawraGraphic
         return null;
     }
 
-    const tex = std.heap.page_allocator.create(VulkanTexture) catch {
+    const tex = std.heap.c_allocator.create(VulkanTexture) catch {
         c.vkDestroyImageView(surface.device, view, null);
         c.vkDestroySampler(surface.device, sampler, null);
         c.vkFreeMemory(surface.device, memory, null);
@@ -4538,7 +4538,7 @@ pub fn createTexture(surface: *VulkanSurface, desc: *const zgraphics.ZawraGraphi
         return null;
     }
 
-    const tex = std.heap.page_allocator.create(VulkanTexture) catch return null;
+    const tex = std.heap.c_allocator.create(VulkanTexture) catch return null;
     tex.* = .{ .image = image, .memory = memory, .view = view, .width = desc.width, .height = desc.height, .sampler = sampler, .descriptor_set = null, .ycbcr_conversion = null, .format = desc.format };
 
     if (surface.descriptor_set_layout != null and surface.descriptor_pool != null) {
@@ -4616,7 +4616,7 @@ fn finishImportedTexture(
     width: u32,
     height: u32,
     vk_format: c.VkFormat,
-    desc: *const zgraphics.ZawraGraphicsTextureDesc,
+    format: zgraphics.ZawraGraphicsTextureFormat,
 ) ?*VulkanTexture {
     const view_info = std.mem.zeroInit(c.VkImageViewCreateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
@@ -4635,7 +4635,6 @@ fn finishImportedTexture(
     const sampler_info = std.mem.zeroInit(c.VkSamplerCreateInfo, .{
         .sType = 35,
         .magFilter = 1,
-        .minFilter = 1,
         .addressModeU = 1,
         .addressModeV = 1,
         .addressModeW = 1,
@@ -4653,14 +4652,14 @@ fn finishImportedTexture(
         return null;
     }
 
-    const tex = std.heap.page_allocator.create(VulkanTexture) catch {
+    const tex = std.heap.c_allocator.create(VulkanTexture) catch {
         c.vkDestroySampler(surface.device, sampler, null);
         c.vkDestroyImageView(surface.device, view, null);
         c.vkFreeMemory(surface.device, memory, null);
         c.vkDestroyImage(surface.device, image, null);
         return null;
     };
-    tex.* = .{ .image = image, .memory = memory, .view = view, .width = width, .height = height, .sampler = sampler, .descriptor_set = null, .ycbcr_conversion = null, .format = desc.format };
+    tex.* = .{ .image = image, .memory = memory, .view = view, .width = width, .height = height, .sampler = sampler, .descriptor_set = null, .ycbcr_conversion = null, .format = format };
 
     if (surface.descriptor_set_layout != null and surface.descriptor_pool != null) {
         tex.descriptor_set = allocateDescriptorSet(surface, sampler, view) orelse tex.descriptor_set;
@@ -4746,7 +4745,7 @@ pub fn importTextureFD(surface: *VulkanSurface, fd: i32, desc: *const zgraphics.
             continue;
         }
 
-        const tex = finishImportedTexture(surface, image, memory, desc.width, desc.height, c.VK_FORMAT_R8G8B8A8_UNORM, desc);
+        const tex = finishImportedTexture(surface, image, memory, desc.width, desc.height, c.VK_FORMAT_R8G8B8A8_UNORM, desc.format);
         if (tex != null) {
             if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] importTextureFD: success, fd={d} {}x{} handleType=0x{x} tiling={d}\n", .{ fd, desc.width, desc.height, candidate.handle_type, candidate.tiling });
             return tex;
@@ -4758,39 +4757,41 @@ pub fn importTextureFD(surface: *VulkanSurface, fd: i32, desc: *const zgraphics.
     return null;
 }
 
-/// Imports a dma-buf described by ZawraGraphicsDMABufInfo. The explicit DRM
-/// format modifier, stride and offset are part of the image creation, which is
-/// what tiled/compressed producers require.
+/// Imports a dma-buf described by ZawraGraphicsDMABufInfo.
 ///
-/// `fd` remains owned by the caller: the Vulkan import takes its own reference.
+/// Cleanly transfers FD ownership: vkAllocateMemory with VkImportMemoryFdInfoKHR
+/// takes ownership of info.fd on success. If validation, vkCreateImage, or vkAllocateMemory
+/// fails, info.fd is closed.
 pub fn importTextureDMABuf(
     surface: *VulkanSurface,
-    fd: i32,
     info: *const zgraphics.ZawraGraphicsDMABufInfo,
-    desc: *const zgraphics.ZawraGraphicsTextureDesc,
 ) ?*VulkanTexture {
     if (builtin.os.tag != .linux) return null;
-    if (fd < 0 or !surface.external_memory_enabled) {
-        if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] importTextureDMABuf: invalid fd={d} or external memory disabled\n", .{fd});
+    if (info.fd < 0 or !surface.external_memory_enabled) {
+        if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] importTextureDMABuf: invalid fd={d} or external memory disabled\n", .{info.fd});
+        if (info.fd >= 0) _ = std.c.close(info.fd);
         return null;
     }
     if (info.width == 0 or info.height == 0 or info.stride == 0) {
         if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] importTextureDMABuf: invalid {}x{} stride={d}\n", .{ info.width, info.height, info.stride });
+        _ = std.c.close(info.fd);
         return null;
     }
 
     const vk_format = drmFormatToVk(info.drm_format);
 
-    const fd_props = queryFdMemoryTypes(surface, fd, c.VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT) orelse {
+    const fd_props = queryFdMemoryTypes(surface, info.fd, c.VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT) orelse {
         if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] importTextureDMABuf: fd is not importable as a dma-buf\n", .{});
+        _ = std.c.close(info.fd);
         return null;
     };
     const memory_type_index = findImportedMemoryType(surface, fd_props) orelse {
         if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] importTextureDMABuf: no compatible memory type\n", .{});
+        _ = std.c.close(info.fd);
         return null;
     };
 
-    const is_linear = info.drm_modifier == c.DRM_FORMAT_MOD_LINEAR;
+    const has_modifier = (info.drm_modifier != c.DRM_FORMAT_MOD_INVALID);
     const plane_layout = c.VkSubresourceLayout{
         .offset = info.offset,
         .size = 0,
@@ -4799,6 +4800,7 @@ pub fn importTextureDMABuf(
         .depthPitch = 0,
     };
     var explicit_modifier_info = std.mem.zeroInit(c.VkImageDrmFormatModifierExplicitCreateInfoEXT, .{
+        .sType = c.VK_STRUCTURE_TYPE_IMAGE_DRM_FORMAT_MODIFIER_EXPLICIT_CREATE_INFO_EXT,
         .drmFormatModifier = info.drm_modifier,
         .drmFormatModifierPlaneCount = 1,
         .pPlaneLayouts = @as([*]const c.VkSubresourceLayout, @ptrCast(&plane_layout)),
@@ -4807,10 +4809,8 @@ pub fn importTextureDMABuf(
     var external_image_info = std.mem.zeroInit(c.VkExternalMemoryImageCreateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
         .handleTypes = c.VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
+        .pNext = if (has_modifier) &explicit_modifier_info else null,
     });
-    if (!is_linear) {
-        external_image_info.pNext = &explicit_modifier_info;
-    }
 
     const image_info = std.mem.zeroInit(c.VkImageCreateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
@@ -4820,7 +4820,7 @@ pub fn importTextureDMABuf(
         .mipLevels = 1,
         .arrayLayers = 1,
         .format = vk_format,
-        .tiling = if (is_linear) c.VK_IMAGE_TILING_LINEAR else c.VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT,
+        .tiling = if (has_modifier) c.VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT else c.VK_IMAGE_TILING_LINEAR,
         .initialLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
         .usage = c.VK_IMAGE_USAGE_SAMPLED_BIT | c.VK_IMAGE_USAGE_TRANSFER_DST_BIT,
         .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
@@ -4830,6 +4830,7 @@ pub fn importTextureDMABuf(
     var image: c.VkImage = null;
     if (c.vkCreateImage(surface.device, &image_info, null, &image) != c.VK_SUCCESS) {
         if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] importTextureDMABuf: vkCreateImage failed (format={d} modifier=0x{x})\n", .{ vk_format, info.drm_modifier });
+        _ = std.c.close(info.fd);
         return null;
     }
 
@@ -4839,7 +4840,7 @@ pub fn importTextureDMABuf(
     var import_fd_info = std.mem.zeroInit(c.VkImportMemoryFdInfoKHR, .{
         .sType = c.VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR,
         .handleType = c.VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
-        .fd = fd,
+        .fd = info.fd,
     });
     // dma-buf imports are dedicated allocations; drivers require this for
     // DRM-format-modifier images.
@@ -4859,9 +4860,12 @@ pub fn importTextureDMABuf(
     var memory: c.VkDeviceMemory = null;
     if (c.vkAllocateMemory(surface.device, &alloc_info, null, &memory) != c.VK_SUCCESS) {
         if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] importTextureDMABuf: vkAllocateMemory failed\n", .{});
+        _ = std.c.close(info.fd);
         c.vkDestroyImage(surface.device, image, null);
         return null;
     }
+    // Vulkan driver took ownership of info.fd via VkImportMemoryFdInfoKHR on success.
+
     if (c.vkBindImageMemory(surface.device, image, memory, 0) != c.VK_SUCCESS) {
         c.vkFreeMemory(surface.device, memory, null);
         c.vkDestroyImage(surface.device, image, null);
@@ -4873,9 +4877,9 @@ pub fn importTextureDMABuf(
         return null;
     }
 
-    const tex = finishImportedTexture(surface, image, memory, info.width, info.height, vk_format, desc);
+    const tex = finishImportedTexture(surface, image, memory, info.width, info.height, vk_format, .R8G8B8A8_Unorm);
     if (tex != null) {
-        if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] importTextureDMABuf: success fd={d} {}x{} stride={d} offset={d} format=0x{x} modifier=0x{x}\n", .{ fd, info.width, info.height, info.stride, info.offset, info.drm_format, info.drm_modifier });
+        if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] importTextureDMABuf: success fd={d} {}x{} stride={d} offset={d} format=0x{x} modifier=0x{x}\n", .{ info.fd, info.width, info.height, info.stride, info.offset, info.drm_format, info.drm_modifier });
     }
     return tex;
 }
@@ -5200,7 +5204,7 @@ pub fn destroyTexture(surface: *VulkanSurface, texture: *VulkanTexture) void {
     if (texture.view != null) c.vkDestroyImageView(surface.device, texture.view, null);
     if (texture.memory != null) c.vkFreeMemory(surface.device, texture.memory, null);
     if (texture.image != null) c.vkDestroyImage(surface.device, texture.image, null);
-    std.heap.page_allocator.destroy(texture);
+    std.heap.c_allocator.destroy(texture);
 }
 
 pub fn setTextureParams(

@@ -348,15 +348,14 @@ pub export fn ZG_ImportTextureFD(handle: ?ZawraGraphicsHandle, fd: i32, desc: *c
 }
 
 /// Imports a dma-buf using explicit format-modifier, stride and offset
-/// metadata. `fd` stays owned by the caller.
+/// metadata in ZawraGraphicsDMABufInfo.
+/// Ownership of info.fd is transferred to Vulkan on success.
 pub export fn ZG_ImportTextureDMABuf(
     handle: ?ZawraGraphicsHandle,
-    fd: i32,
     info: *const ZawraGraphicsDMABufInfo,
-    desc: *const ZawraGraphicsTextureDesc,
 ) ?ZawraGraphicsTexture {
     if (handle == null) return null;
-    if (builtin.os.tag == .linux) return @ptrCast(vulkan.importTextureDMABuf(@ptrCast(@alignCast(handle.?)), fd, info, desc));
+    if (builtin.os.tag == .linux) return @ptrCast(vulkan.importTextureDMABuf(@ptrCast(@alignCast(handle.?)), info));
     return null;
 }
 
@@ -390,14 +389,8 @@ pub export fn ZG_BindWpeDMABuf(surface: ?ZawraGraphicsHandle, fd: i32, width: u3
         .drm_format = 0,
         .drm_modifier = 0,
     };
-    const desc = ZawraGraphicsTextureDesc{
-        .format = .R8G8B8A8_Unorm,
-        .width = width,
-        .height = height,
-        .external_handle = null,
-    };
 
-    const texture = ZG_ImportTextureDMABuf(surface, fd, &info, &desc);
+    const texture = ZG_ImportTextureDMABuf(surface, &info);
     if (texture == null) {
         return false;
     }
