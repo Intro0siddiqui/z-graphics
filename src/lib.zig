@@ -221,6 +221,13 @@ pub export fn ZG_PollEvents(window: ?ZawraGraphicsHandle) void {
     if (builtin.os.tag == .macos) macos_metal.dispatchEvents(@ptrCast(window));
 }
 
+pub export fn ZG_CheckWindowResize(window: ?ZawraGraphicsHandle, out_w: *u32, out_h: *u32) bool {
+    if (builtin.os.tag == .linux) {
+        return vulkan.checkWindowResize(@ptrCast(@alignCast(window)), out_w, out_h);
+    }
+    return false;
+}
+
 pub const ZawraGraphicsTextureFormat = enum(u32) {
     R8G8B8A8_Unorm = 0,
     YUV420_3Plane = 1,
@@ -411,7 +418,7 @@ pub export fn Zawra_SetLoadURLCallback(cb: ?*const fn (url_ptr: [*]const u8, url
     global_load_url_handler = cb;
 }
 
-pub export fn Zawra_LoadURL(url_ptr: [*]const u8, url_len: usize) void {
+pub fn Zawra_LoadURL(url_ptr: [*]const u8, url_len: usize) void {
     if (global_load_url_handler) |cb| {
         cb(url_ptr, url_len);
     } else {
@@ -430,13 +437,13 @@ pub export fn Zawra_SetKeyboardEventHandler(cb: ?*const fn (u32, u32, u32) callc
     global_wpe_keyboard_handler = cb;
 }
 
-pub export fn wpe_view_event_pointer(event_type: u32, local_x: f64, local_y: f64, button: u32, state: u32) void {
+pub fn wpe_view_event_pointer(event_type: u32, local_x: f64, local_y: f64, button: u32, state: u32) void {
     if (global_wpe_pointer_handler) |cb| {
         cb(event_type, local_x, local_y, button, state);
     }
 }
 
-pub export fn wpe_view_event_keyboard(key: u32, state: u32, modifiers: u32) void {
+pub fn wpe_view_event_keyboard(key: u32, state: u32, modifiers: u32) void {
     if (global_wpe_keyboard_handler) |cb| {
         cb(key, state, modifiers);
     }
@@ -450,7 +457,7 @@ pub export fn Zawra_SetGetRecentHistoryFn(cb: ?*const fn (limit: u32, out_json_b
     global_get_recent_history_fn = cb;
 }
 
-pub export fn Zawra_GetRecentHistory(limit: u32, out_json_buf: [*]u8, out_max_len: usize) usize {
+pub fn Zawra_GetRecentHistory(limit: u32, out_json_buf: [*]u8, out_max_len: usize) usize {
     if (global_get_recent_history_fn) |cb| {
         return cb(limit, out_json_buf, out_max_len);
     }

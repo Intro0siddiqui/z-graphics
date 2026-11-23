@@ -45,35 +45,8 @@ fn onKeyboardEvent(key: u32, state: u32, ctrl: bool) callconv(.c) void {
     }
 }
 
-pub fn main(init: std.process.Init.Minimal) !void {
+pub fn runShell(width: u32, height: u32, headless: bool, max_frames: ?usize, target_url: ?[]const u8) !void {
     const allocator = std.heap.page_allocator;
-
-    var args = try init.args.iterateAllocator(allocator);
-    defer args.deinit();
-
-    var width: u32 = 1280;
-    var height: u32 = 800;
-    var headless: bool = false;
-    var max_frames: ?usize = null;
-    var target_url: ?[]const u8 = null;
-
-    _ = args.next(); // skip exe name
-    while (args.next()) |arg| {
-        if (std.mem.eql(u8, arg, "--headless")) {
-            headless = true;
-        } else if (std.mem.eql(u8, arg, "--smoke")) {
-            max_frames = 10;
-        } else if (std.mem.startsWith(u8, arg, "--frames=")) {
-            max_frames = try std.fmt.parseInt(usize, arg[9..], 10);
-        } else if (std.mem.startsWith(u8, arg, "--width=")) {
-            width = try std.fmt.parseInt(u32, arg[8..], 10);
-        } else if (std.mem.startsWith(u8, arg, "--height=")) {
-            height = try std.fmt.parseInt(u32, arg[9..], 10);
-        } else if (!std.mem.startsWith(u8, arg, "--")) {
-            target_url = arg;
-        }
-    }
-
     std.debug.print("[ZAWRA-SHELL] Initializing native Zig UI Shell ({}x{})...\n", .{ width, height });
 
     if (!zgraphics.ZG_Initialize()) {
@@ -119,6 +92,15 @@ pub fn main(init: std.process.Init.Minimal) !void {
     while (!is_limited or frame_count < limit) : (frame_count += 1) {
         if (window) |win| {
             zgraphics.ZG_PollEvents(win);
+            var new_w: u32 = 0;
+            var new_h: u32 = 0;
+            if (zgraphics.ZG_CheckWindowResize(win, &new_w, &new_h)) {
+                if (new_w > 0 and new_h > 0 and (new_w != shell_state.window_width or new_h != shell_state.window_height)) {
+                    shell_state.setWindowSize(new_w, new_h);
+                    zgraphics.ZG_RecreateSwapchain(surface, new_w, new_h);
+                    std.debug.print("[ZAWRA-SHELL] Window resized to {}x{}\n", .{ new_w, new_h });
+                }
+            }
         }
 
         // Animate or update layout if needed
@@ -137,4 +119,50 @@ pub fn main(init: std.process.Init.Minimal) !void {
     }
 
     std.debug.print("[ZAWRA-SHELL] Frame loop finished after {} frames.\n", .{frame_count});
+}
+
+pub export fn Zawra_UI_Run(argc: c_int, argv: ?[*][*:0]const u8) c_int {
+    _ = argc;
+    _ = argv;
+    runShell(1280, 800, false, null, null) catch |err| {
+        std.debug.print("[ZAWRA-SHELL] Error: {}\n", .{err});
+        return 1;
+    };
+    return 0;
+}
+
+pub export fn roundq(x: f128) f128 {
+    return @round(x);
+}
+
+pub fn runShellFromArgs(init: std.process.Init.Minimal) !void {
+    const allocator = std.heap.page_allocator;
+
+    var args = try init.args.iterateAllocator(allocator);
+    defer args.deinit();
+
+    var width: u32 = 1280;
+    var height: u32 = 800;
+    var headless: bool = false;
+    var max_frames: ?usize = null;
+    var target_url: ?[]const u8 = null;
+
+    _ = args.next(); // skip exe name
+    while (args.next()) |arg| {
+        if (std.mem.eql(u8, arg, "--headless")) {
+            headless = true;
+        } else if (std.mem.eql(u8, arg, "--smoke")) {
+            max_frames = 10;
+        } else if (std.mem.startsWith(u8, arg, "--frames=")) {
+            max_frames = try std.fmt.parseInt(usize, arg[9..], 10);
+        } else if (std.mem.startsWith(u8, arg, "--width=")) {
+            width = try std.fmt.parseInt(u32, arg[8..], 10);
+        } else if (std.mem.startsWith(u8, arg, "--height=")) {
+            height = try std.fmt.parseInt(u32, arg[9..], 10);
+        } else if (!std.mem.startsWith(u8, arg, "--")) {
+            target_url = arg;
+        }
+    }
+
+    try runShell(width, height, headless, max_frames, target_url);
 }

@@ -6,6 +6,14 @@ const wl = @cImport({
     @cInclude("xdg-shell-client-protocol.h");
 });
 
+extern "c" fn poll(fds: [*]wl_pollfd, nfds: c_ulong, timeout: c_int) callconv(.c) c_int;
+const wl_pollfd = extern struct {
+    fd: c_int,
+    events: c_short,
+    revents: c_short,
+};
+const POLLIN: c_short = 0x0001;
+
 pub const PointerEventFn = *const fn (event_type: u32, x: f32, y: f32, button: u32, state: u32) callconv(.c) void;
 pub const KeyboardEventFn = *const fn (key: u32, state: u32, ctrl: bool) callconv(.c) void;
 
@@ -38,6 +46,7 @@ pub const WaylandWindowState = struct {
     pointer_y: f32 = 0,
     pointer_button_state: u32 = 0,
     ctrl_pressed: bool = false,
+    resized: bool = false,
 };
 
 fn wl_fixed_to_f32(f: wl.wl_fixed_t) f32 {
@@ -287,11 +296,19 @@ const xdg_surface_listener = wl.xdg_surface_listener{
 };
 
 fn xdg_toplevel_configure(data: ?*anyopaque, toplevel: ?*wl.xdg_toplevel, width: i32, height: i32, states: ?*wl.wl_array) callconv(.c) void {
-    _ = data;
     _ = toplevel;
-    _ = width;
-    _ = height;
     _ = states;
+    if (data == null) return;
+    const state: *WaylandWindowState = @ptrCast(@alignCast(data.?));
+    if (width > 0 and height > 0) {
+        const uw: u32 = @intCast(width);
+        const uh: u32 = @intCast(height);
+        if (state.width != uw or state.height != uh) {
+            state.width = uw;
+            state.height = uh;
+            state.resized = true;
+        }
+    }
 }
 
 fn xdg_toplevel_close(data: ?*anyopaque, toplevel: ?*wl.xdg_toplevel) callconv(.c) void {
@@ -453,7 +470,27 @@ pub fn destroyWindow(state: *WaylandWindowState) void {
     std.heap.page_allocator.destroy(state);
 }
 
+pub fn checkResize(state: *WaylandWindowState, out_w: *u32, out_h: *u32) bool {
+    if (state.resized) {
+        state.resized = false;
+        out_w.* = state.width;
+        out_h.* = state.height;
+        return true;
+    }
+    return false;
+}
+
 pub fn dispatchEvents(state: *WaylandWindowState) void {
     _ = wl.wl_display_flush(state.display);
-    _ = wl.wl_display_dispatch_pending(state.display);
+    var pfd = wl_pollfd{
+        .fd = wl.wl_display_get_fd(state.display),
+        .events = POLLIN,
+        .revents = 0,
+    };
+    const ready = poll(@ptrCast(&pfd), 1, 0);
+    if (ready > 0 and (pfd.revents & POLLIN) != 0) {
+        _ = wl.wl_display_dispatch(state.display);
+    } else {
+        _ = wl.wl_display_dispatch_pending(state.display);
+    }
 }

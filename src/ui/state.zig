@@ -427,31 +427,7 @@ pub const ShellState = struct {
         var buf: [4096]u8 = undefined;
         const len = zgraphics.Zawra_GetRecentHistory(16, &buf, buf.len);
         if (len > 0) {
-            self.parseHistoryJson(arena, buf[0..len]) catch {
-                self.loadDefaultHistory(arena);
-            };
-        } else {
-            self.loadDefaultHistory(arena);
-        }
-    }
-
-    pub fn loadDefaultHistory(self: *ShellState, arena: std.mem.Allocator) void {
-        const defaults = [_]struct { title: []const u8, url: []const u8, time: u64 }{
-            .{ .title = "GitHub - Where the world builds", .url = "https://github.com", .time = 1700001000 },
-            .{ .title = "Zawra Browser Architecture", .url = "https://zawra.dev/docs", .time = 1700000800 },
-            .{ .title = "WPE WebKit RHI Integration", .url = "https://wpewebkit.org", .time = 1700000600 },
-            .{ .title = "DuckDuckGo Search", .url = "https://duckduckgo.com", .time = 1700000400 },
-            .{ .title = "Vulkan Zero-Copy Compositing", .url = "https://khronos.org/vulkan", .time = 1700000200 },
-        };
-        for (defaults) |d| {
-            const title = arena.dupe(u8, d.title) catch return;
-            const url = arena.dupe(u8, d.url) catch return;
-            self.history_items.append(self.allocator, HistoryEntryItem{
-                .title = title,
-                .url = url,
-                .visit_time = d.time,
-                .hovered = false,
-            }) catch return;
+            self.parseHistoryJson(arena, buf[0..len]) catch {};
         }
     }
 
@@ -611,6 +587,27 @@ pub const ShellState = struct {
                 }
             }
             return;
+        }
+
+        // Auto-focus search or omnibar when typing if nothing is currently focused
+        if (self.focus == .none) {
+            const active_tab = self.getActiveTabConst();
+            const is_start = if (active_tab) |tab| isStartPage(tab.getUrl()) else true;
+            if (is_start) {
+                self.focus = .search_hud;
+            } else {
+                const char_byte: ?u8 = if (evdevToAscii(key, self.shift_pressed)) |c|
+                    c
+                else if (key >= 32 and key <= 126)
+                    @intCast(key)
+                else
+                    null;
+                if (char_byte != null and !is_ctrl) {
+                    self.focus = .omnibar;
+                    self.omnibar.len = 0;
+                    self.omnibar.cursor_pos = 0;
+                }
+            }
         }
 
         if (self.focus == .search_hud) {
@@ -851,6 +848,10 @@ pub const ShellState = struct {
         if (self.layout.omnibar_rect.contains(mx, my)) {
             self.focus = .omnibar;
             self.omnibar.focused = true;
+            if (self.omnibar.len > 0) {
+                self.omnibar.len = 0;
+                self.omnibar.cursor_pos = 0;
+            }
         } else {
             self.focus = .none;
             self.omnibar.focused = false;

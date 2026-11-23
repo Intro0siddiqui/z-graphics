@@ -70,6 +70,17 @@ pub fn dispatchEvents(window: ?*anyopaque) void {
     }
 }
 
+pub fn checkResize(window: ?*anyopaque, out_w: *u32, out_h: *u32) bool {
+    if (window) |w| {
+        const win: *LinuxWindow = @ptrCast(@alignCast(w));
+        switch (win.type) {
+            .Wayland => return wayland.checkResize(@ptrCast(@alignCast(win.handle)), out_w, out_h),
+            .X11 => return false,
+        }
+    }
+    return false;
+}
+
 pub fn setPointerCallback(cb: ?wayland.PointerEventFn) void {
     wayland.setPointerCallback(cb);
 }

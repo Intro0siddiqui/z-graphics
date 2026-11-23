@@ -79,11 +79,29 @@ pub fn build(b: *std.Build) void {
     smoke_test.root_module.link_libc = true;
     smoke_test.root_module.addIncludePath(b.path("src/platform"));
 
-    // Zawra Native Zig Browser Shell Executable
+    // Zawra UI static library (for embedding in zawra browser binary without main)
+    const ui_mod = b.createModule(.{
+        .root_source_file = b.path("src/ui/shell.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    ui_mod.addImport("shaders", shaders_mod);
+    ui_mod.link_libc = true;
+    ui_mod.addIncludePath(b.path("src/platform"));
+    ui_mod.addImport("lib", lib_mod);
+
+    const ui_lib = b.addLibrary(.{
+        .linkage = .static,
+        .name = "zawra-ui",
+        .root_module = ui_mod,
+    });
+    b.installArtifact(ui_lib);
+
+    // Zawra Native Zig Browser Shell Executable (standalone test runner)
     const zawra_shell = b.addExecutable(.{
         .name = "zawra-shell",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/ui/shell.zig"),
+            .root_source_file = b.path("src/ui/main.zig"),
             .target = target,
             .optimize = optimize,
         }),
