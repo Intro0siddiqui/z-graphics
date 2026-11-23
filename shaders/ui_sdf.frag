@@ -30,8 +30,11 @@ void main() {
         float sharpAlpha = smoothstep(0.35, 0.65, glyphAlpha);
         outColor = vec4(fragColor.rgb, fragColor.a * sharpAlpha);
     } else if (mode > 1.5 && mode < 2.5) {
-        // Mode 2: Textured Quad (e.g. circuit background, icons, hero emblem)
+        // Mode 2: Textured Quad (e.g. circuit background, icons, hero emblem, WPE viewport)
         vec4 texSample = texture(mainTexture, fragTexCoord);
+        if (extra > 0.5) {
+            texSample.a = 1.0;
+        }
         if (radius > 0.0) {
             float max_r = min(fragHalfSize.x, fragHalfSize.y);
             float r = clamp(radius, 0.0, max_r);

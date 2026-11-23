@@ -4596,7 +4596,7 @@ fn transitionImportedImage(surface: *VulkanSurface, image: c.VkImage) bool {
         .sType = 45,
         .srcAccessMask = 0,
         .dstAccessMask = c.VK_ACCESS_SHADER_READ_BIT,
-        .oldLayout = c.VK_IMAGE_LAYOUT_GENERAL,
+        .oldLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
         .newLayout = c.VK_IMAGE_LAYOUT_GENERAL,
         .srcQueueFamilyIndex = c.VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = c.VK_QUEUE_FAMILY_IGNORED,
