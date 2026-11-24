@@ -1446,6 +1446,11 @@ pub fn createWindow(width: u32, height: u32) ?*anyopaque {
     return platform.createWindow(width, height);
 }
 
+pub fn flush(window: ?*anyopaque) void {
+    if (builtin.os.tag != .linux) return;
+    platform.flush(window);
+}
+
 pub fn pollEvents(window: ?*anyopaque) void {
     if (builtin.os.tag != .linux) return;
     platform.dispatchEvents(window);
@@ -1462,6 +1467,21 @@ pub fn setPointerCallback(cb: ?*const fn (u32, f32, f32, u32, u32) callconv(.c) 
 
 pub fn setKeyboardCallback(cb: ?*const fn (u32, u32, bool) callconv(.c) void) void {
     if (builtin.os.tag == .linux) platform.setKeyboardCallback(cb);
+}
+
+pub fn getWaylandDisplay(window: ?*anyopaque) ?*anyopaque {
+    if (builtin.os.tag != .linux) return null;
+    return platform.getWlDisplay(window);
+}
+
+pub fn getWaylandSurface(window: ?*anyopaque) ?*anyopaque {
+    if (builtin.os.tag != .linux) return null;
+    return platform.getWlSurface(window);
+}
+
+pub fn getWaylandSubcompositor(window: ?*anyopaque) ?*anyopaque {
+    if (builtin.os.tag != .linux) return null;
+    return platform.getWlSubcompositor(window);
 }
 
 fn findMemoryType(physical_device: c.VkPhysicalDevice, type_filter: u32, properties: u32) ?u32 {
@@ -2610,7 +2630,6 @@ pub fn swapBuffers(surface: *VulkanSurface) void {
             present_info.pWaitSemaphores = @as(?*const anyopaque, @ptrCast(&wait_semaphore));
         }
         const present_result = c.vkQueuePresentKHR(surface.graphics_queue, &present_info);
-        std.debug.print("[ZG-DIAG] swapBuffers: vkQueuePresentKHR={d} image_index={d}\n", .{ present_result, surface.image_index });
         if (present_result == 1000001003 or present_result == -1000001000) { // VK_SUBOPTIMAL_KHR or VK_ERROR_OUT_OF_DATE_KHR
             recreateSwapchain(surface, surface.width, surface.height);
         }
@@ -3060,7 +3079,6 @@ pub fn beginCommandBuffer(surface: *VulkanSurface) ?*VulkanCommandBuffer {
         surface.current_cmd.last_bound_buffers[i] = null;
         surface.current_cmd.last_bound_offsets[i] = 0;
     }
-    std.debug.print("[ZG-DIAG] beginCommandBuffer OK: image_index={d} cmd={any}\n", .{ surface.image_index, surface.render_cmd });
     return &surface.current_cmd;
 }
 
@@ -3104,7 +3122,6 @@ pub fn cmdClearColor(cmd: *VulkanCommandBuffer, r: f32, g: f32, b: f32, a: f32) 
     c.vkCmdSetViewport(cmd.cmd, 0, 1, @as([*]const c.VkViewport, @ptrCast(&viewport)));
     const scissor = c.VkRect2D{ .offset = .{ .x = 0, .y = 0 }, .extent = .{ .width = surface.width, .height = surface.height } };
     c.vkCmdSetScissor(cmd.cmd, 0, 1, @as([*]const c.VkRect2D, @ptrCast(&scissor)));
-    std.debug.print("[ZG-DIAG] cmdClearColor OK: w={d} h={d} fb={any} msaa={d} clear=({d},{d},{d},{d})\n", .{ surface.width, surface.height, fb, surface.msaa_samples, r, g, b, a });
 }
 
 pub fn cmdClearAttachments(cmd: *VulkanCommandBuffer, color: bool, depth: bool, stencil: bool, r: f32, g: f32, b: f32, a: f32) void {
@@ -3284,10 +3301,8 @@ pub fn submitCommandBuffer(surface: *VulkanSurface, cmd: *VulkanCommandBuffer) v
     }
 
     _ = c.vkResetFences(surface.device, 1, @as([*]const c.VkFence, @ptrCast(&surface.fence)));
-    const submit_result = c.vkQueueSubmit(surface.graphics_queue, 1, @as([*]const c.VkSubmitInfo, @ptrCast(&submit_info)), surface.fence);
-    std.debug.print("[ZG-DIAG] submitCommandBuffer: vkQueueSubmit={d}\n", .{submit_result});
+    _ = c.vkQueueSubmit(surface.graphics_queue, 1, @as([*]const c.VkSubmitInfo, @ptrCast(&submit_info)), surface.fence);
     _ = c.vkWaitForFences(surface.device, 1, @as([*]const c.VkFence, @ptrCast(&surface.fence)), c.VK_TRUE, std.math.maxInt(u64));
-    std.debug.print("[ZG-DIAG] submitCommandBuffer OK: fence signaled\n", .{});
 }
 
 pub const VulkanPipeline = struct { pipeline: c.VkPipeline, layout: c.VkPipelineLayout };
@@ -3467,7 +3482,6 @@ pub fn cmdBindPipeline(cmd: *VulkanCommandBuffer, pipeline: *VulkanPipeline) voi
     if (builtin.os.tag != .linux) return;
     c.vkCmdBindPipeline(cmd.cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
     cmd.pipeline_layout = pipeline.layout;
-    std.debug.print("[ZG-DIAG] cmdBindPipeline OK: pipeline={any} layout={any}\n", .{ pipeline.pipeline, pipeline.layout });
 }
 
 pub fn createComputePipeline(
@@ -3680,7 +3694,6 @@ pub fn cmdBindTexture(cmd: *VulkanCommandBuffer, texture: *VulkanTexture, bindin
     }
     cmd.current_descriptor_set = texture.descriptor_set;
     const sets = [_]c.VkDescriptorSet{texture.descriptor_set};
-    std.debug.print("[ZG-DIAG] cmdBindTexture OK: binding={d} set={any} layout={any}\n", .{ binding, texture.descriptor_set, cmd.pipeline_layout });
     c.vkCmdBindDescriptorSets(cmd.cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, cmd.pipeline_layout.?, binding, 1, @as([*]const c.VkDescriptorSet, @ptrCast(&sets)), 0, null);
 }
 
@@ -3691,7 +3704,6 @@ pub fn cmdBindVertexBuffer(cmd: *VulkanCommandBuffer, buffer: *VulkanBuffer, off
 
 pub fn cmdDraw(cmd: *VulkanCommandBuffer, vertex_count: u32, instance_count: u32, first_vertex: u32, first_instance: u32) void {
     if (builtin.os.tag != .linux) return;
-    std.debug.print("[ZG-DIAG] cmdDraw: verts={d} instances={d} first_v={d} first_i={d}\n", .{ vertex_count, instance_count, first_vertex, first_instance });
     c.vkCmdDraw(cmd.cmd, vertex_count, instance_count, first_vertex, first_instance);
 }
 

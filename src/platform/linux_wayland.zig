@@ -32,6 +32,7 @@ pub const WaylandWindowState = struct {
     display: *wl.wl_display,
     registry: *wl.wl_registry,
     compositor: ?*wl.wl_compositor = null,
+    subcompositor: ?*wl.wl_subcompositor = null,
     wm_base: ?*wl.xdg_wm_base = null,
     seat: ?*wl.wl_seat = null,
     pointer: ?*wl.wl_pointer = null,
@@ -47,6 +48,18 @@ pub const WaylandWindowState = struct {
     pointer_button_state: u32 = 0,
     ctrl_pressed: bool = false,
     resized: bool = false,
+
+    pub fn getWlDisplay(self: *const WaylandWindowState) *wl.wl_display {
+        return self.display;
+    }
+
+    pub fn getWlSurface(self: *const WaylandWindowState) *wl.wl_surface {
+        return self.surface;
+    }
+
+    pub fn getWlSubcompositor(self: *const WaylandWindowState) ?*wl.wl_subcompositor {
+        return self.subcompositor;
+    }
 };
 
 fn wl_fixed_to_f32(f: wl.wl_fixed_t) f32 {
@@ -255,6 +268,8 @@ fn registry_global(data: ?*anyopaque, reg: ?*wl.wl_registry, name: u32, interfac
     const iface = std.mem.span(interface);
     if (std.mem.eql(u8, iface, "wl_compositor")) {
         state.compositor = @ptrCast(wl.wl_registry_bind(reg, name, &wl.wl_compositor_interface, 4));
+    } else if (std.mem.eql(u8, iface, "wl_subcompositor")) {
+        state.subcompositor = @ptrCast(wl.wl_registry_bind(reg, name, &wl.wl_subcompositor_interface, 1));
     } else if (std.mem.eql(u8, iface, "xdg_wm_base")) {
         state.wm_base = @ptrCast(wl.wl_registry_bind(reg, name, &wl.xdg_wm_base_interface, 1));
     } else if (std.mem.eql(u8, iface, "wl_seat")) {
@@ -356,6 +371,7 @@ pub fn createWindow(width: u32, height: u32) ?*WaylandWindowState {
         .display = dpy,
         .registry = reg,
         .compositor = null,
+        .subcompositor = null,
         .wm_base = null,
         .surface = undefined,
         .xdg_surface = undefined,
@@ -463,11 +479,29 @@ pub fn destroyWindow(state: *WaylandWindowState) void {
     wl.xdg_toplevel_destroy(state.toplevel);
     wl.xdg_surface_destroy(state.xdg_surface);
     wl.wl_surface_destroy(state.surface);
+    if (state.subcompositor) |sub| wl.wl_subcompositor_destroy(sub);
     if (state.wm_base) |wb| wl.xdg_wm_base_destroy(wb);
     if (state.compositor) |c| wl.wl_compositor_destroy(c);
     wl.wl_registry_destroy(state.registry);
     wl.wl_display_disconnect(state.display);
     std.heap.page_allocator.destroy(state);
+}
+
+pub export fn ZG_Wayland_GetDisplay(state: ?*WaylandWindowState) ?*anyopaque {
+    if (state) |s| return @ptrCast(s.getWlDisplay());
+    return null;
+}
+
+pub export fn ZG_Wayland_GetSurface(state: ?*WaylandWindowState) ?*anyopaque {
+    if (state) |s| return @ptrCast(s.getWlSurface());
+    return null;
+}
+
+pub export fn ZG_Wayland_GetSubcompositor(state: ?*WaylandWindowState) ?*anyopaque {
+    if (state) |s| {
+        if (s.getWlSubcompositor()) |sub| return @ptrCast(sub);
+    }
+    return null;
 }
 
 pub fn checkResize(state: *WaylandWindowState, out_w: *u32, out_h: *u32) bool {
@@ -478,6 +512,10 @@ pub fn checkResize(state: *WaylandWindowState, out_w: *u32, out_h: *u32) bool {
         return true;
     }
     return false;
+}
+
+pub fn flush(state: *WaylandWindowState) void {
+    _ = wl.wl_display_flush(state.display);
 }
 
 pub fn dispatchEvents(state: *WaylandWindowState) void {

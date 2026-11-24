@@ -80,46 +80,11 @@ pub fn build(b: *std.Build) void {
     smoke_test.root_module.link_libc = true;
     smoke_test.root_module.addIncludePath(b.path("src/platform"));
 
-    // Zawra UI static library (for embedding in zawra browser binary without main)
-    const ui_mod = b.createModule(.{
-        .root_source_file = b.path("src/ui/shell.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    ui_mod.addImport("shaders", shaders_mod);
-    ui_mod.link_libc = true;
-    ui_mod.addIncludePath(b.path("src/platform"));
-    ui_mod.addImport("lib", lib_mod);
-
-    const ui_lib = b.addLibrary(.{
-        .linkage = .static,
-        .name = "zawra-ui",
-        .root_module = ui_mod,
-    });
-    ui_lib.bundle_compiler_rt = true;
-    b.installArtifact(ui_lib);
-
-    // Zawra Native Zig Browser Shell Executable (standalone test runner)
-    const zawra_shell = b.addExecutable(.{
-        .name = "zawra-shell",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/ui/main.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-    zawra_shell.root_module.addImport("shaders", shaders_mod);
-    zawra_shell.root_module.link_libc = true;
-    zawra_shell.root_module.addIncludePath(b.path("src/platform"));
-
     if (target.result.os.tag == .linux) {
         smoke_test.root_module.linkSystemLibrary("vulkan", .{});
-        zawra_shell.root_module.linkSystemLibrary("vulkan", .{});
         if (!target.result.abi.isAndroid()) {
             smoke_test.root_module.linkSystemLibrary("X11", .{});
             smoke_test.root_module.linkSystemLibrary("wayland-client", .{});
-            zawra_shell.root_module.linkSystemLibrary("X11", .{});
-            zawra_shell.root_module.linkSystemLibrary("wayland-client", .{});
         }
     } else if (target.result.os.tag == .macos) {
         // macOS Metal uses pure dynamic dispatch via dlopen/dlsym/libobjc at runtime.
@@ -129,18 +94,12 @@ pub fn build(b: *std.Build) void {
         smoke_test.root_module.linkSystemLibrary("dxgi", .{});
         smoke_test.root_module.linkSystemLibrary("user32", .{});
         smoke_test.root_module.linkSystemLibrary("kernel32", .{});
-        zawra_shell.root_module.linkSystemLibrary("d3d12", .{});
-        zawra_shell.root_module.linkSystemLibrary("dxgi", .{});
-        zawra_shell.root_module.linkSystemLibrary("user32", .{});
-        zawra_shell.root_module.linkSystemLibrary("kernel32", .{});
     }
 
     smoke_test.root_module.addImport("lib", lib_mod);
-    zawra_shell.root_module.addImport("lib", lib_mod);
 
     if (!target.result.abi.isAndroid()) {
         b.installArtifact(smoke_test);
-        b.installArtifact(zawra_shell);
 
         const run_cmd = b.addRunArtifact(smoke_test);
         const test_step = b.step("test", "Run smoke test");

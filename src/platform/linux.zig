@@ -60,6 +60,16 @@ pub fn destroyWindow(window: ?*anyopaque) void {
     }
 }
 
+pub fn flush(window: ?*anyopaque) void {
+    if (window) |w| {
+        const win: *LinuxWindow = @ptrCast(@alignCast(w));
+        switch (win.type) {
+            .Wayland => wayland.flush(@ptrCast(@alignCast(win.handle))),
+            .X11 => {},
+        }
+    }
+}
+
 pub fn dispatchEvents(window: ?*anyopaque) void {
     if (window) |w| {
         const win: *LinuxWindow = @ptrCast(@alignCast(w));
@@ -87,4 +97,47 @@ pub fn setPointerCallback(cb: ?wayland.PointerEventFn) void {
 
 pub fn setKeyboardCallback(cb: ?wayland.KeyboardEventFn) void {
     wayland.setKeyboardCallback(cb);
+}
+
+pub fn getWlDisplay(window: ?*anyopaque) ?*anyopaque {
+    if (window) |w| {
+        const win: *LinuxWindow = @ptrCast(@alignCast(w));
+        switch (win.type) {
+            .Wayland => {
+                const s: *wayland.WaylandWindowState = @ptrCast(@alignCast(win.handle));
+                return @ptrCast(s.getWlDisplay());
+            },
+            .X11 => return null,
+        }
+    }
+    return null;
+}
+
+pub fn getWlSurface(window: ?*anyopaque) ?*anyopaque {
+    if (window) |w| {
+        const win: *LinuxWindow = @ptrCast(@alignCast(w));
+        switch (win.type) {
+            .Wayland => {
+                const s: *wayland.WaylandWindowState = @ptrCast(@alignCast(win.handle));
+                return @ptrCast(s.getWlSurface());
+            },
+            .X11 => return null,
+        }
+    }
+    return null;
+}
+
+pub fn getWlSubcompositor(window: ?*anyopaque) ?*anyopaque {
+    if (window) |w| {
+        const win: *LinuxWindow = @ptrCast(@alignCast(w));
+        switch (win.type) {
+            .Wayland => {
+                const s: *wayland.WaylandWindowState = @ptrCast(@alignCast(win.handle));
+                if (s.getWlSubcompositor()) |sub| return @ptrCast(sub);
+                return null;
+            },
+            .X11 => return null,
+        }
+    }
+    return null;
 }

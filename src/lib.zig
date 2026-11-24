@@ -18,6 +18,9 @@ export fn _force_zgraphics_exports() void {
     _ = ZG_ExportSurfaceSharedHandle;
     _ = ZG_ExportSurfaceFD;
     _ = ZG_ExportSurfaceIOSurface;
+    _ = ZG_GetWaylandDisplay;
+    _ = ZG_GetWaylandSurface;
+    _ = ZG_GetWaylandSubcompositor;
 }
 
 /// The internal structure representing a graphics surface.
@@ -216,6 +219,10 @@ pub export fn ZG_DestroyWindow(window: ?ZawraGraphicsHandle) void {
     if (builtin.os.tag == .macos) macos_metal.destroyWindow(@ptrCast(window));
 }
 
+pub export fn ZG_Flush(window: ?ZawraGraphicsHandle) void {
+    if (builtin.os.tag == .linux) vulkan.flush(@ptrCast(@alignCast(window)));
+}
+
 pub export fn ZG_PollEvents(window: ?ZawraGraphicsHandle) void {
     if (builtin.os.tag == .linux) vulkan.pollEvents(@ptrCast(@alignCast(window)));
     if (builtin.os.tag == .macos) macos_metal.dispatchEvents(@ptrCast(window));
@@ -226,6 +233,21 @@ pub export fn ZG_CheckWindowResize(window: ?ZawraGraphicsHandle, out_w: *u32, ou
         return vulkan.checkWindowResize(@ptrCast(@alignCast(window)), out_w, out_h);
     }
     return false;
+}
+
+pub export fn ZG_GetWaylandDisplay(window: ?ZawraGraphicsHandle) ?*anyopaque {
+    if (builtin.os.tag == .linux) return vulkan.getWaylandDisplay(window);
+    return null;
+}
+
+pub export fn ZG_GetWaylandSurface(window: ?ZawraGraphicsHandle) ?*anyopaque {
+    if (builtin.os.tag == .linux) return vulkan.getWaylandSurface(window);
+    return null;
+}
+
+pub export fn ZG_GetWaylandSubcompositor(window: ?ZawraGraphicsHandle) ?*anyopaque {
+    if (builtin.os.tag == .linux) return vulkan.getWaylandSubcompositor(window);
+    return null;
 }
 
 pub const ZawraGraphicsTextureFormat = enum(u32) {
