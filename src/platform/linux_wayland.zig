@@ -15,7 +15,7 @@ const wl_pollfd = extern struct {
 const POLLIN: c_short = 0x0001;
 
 pub const PointerEventFn = *const fn (event_type: u32, x: f32, y: f32, button: u32, state: u32) callconv(.c) void;
-pub const KeyboardEventFn = *const fn (key: u32, state: u32, ctrl: bool) callconv(.c) void;
+pub const KeyboardEventFn = *const fn (key: u32, state: u32, modifiers: u32) callconv(.c) void;
 
 pub var global_pointer_callback: ?PointerEventFn = null;
 pub var global_keyboard_callback: ?KeyboardEventFn = null;
@@ -46,7 +46,9 @@ pub const WaylandWindowState = struct {
     pointer_x: f32 = 0,
     pointer_y: f32 = 0,
     pointer_button_state: u32 = 0,
+    shift_pressed: bool = false,
     ctrl_pressed: bool = false,
+    alt_pressed: bool = false,
     resized: bool = false,
 
     pub fn getWlDisplay(self: *const WaylandWindowState) *wl.wl_display {
@@ -179,10 +181,14 @@ fn keyboard_enter(data: ?*anyopaque, keyboard: ?*wl.wl_keyboard, serial: u32, su
 }
 
 fn keyboard_leave(data: ?*anyopaque, keyboard: ?*wl.wl_keyboard, serial: u32, surface: ?*wl.wl_surface) callconv(.c) void {
-    _ = data;
     _ = keyboard;
     _ = serial;
     _ = surface;
+    if (data == null) return;
+    const state: *WaylandWindowState = @ptrCast(@alignCast(data.?));
+    state.shift_pressed = false;
+    state.ctrl_pressed = false;
+    state.alt_pressed = false;
 }
 
 fn keyboard_key(data: ?*anyopaque, keyboard: ?*wl.wl_keyboard, serial: u32, time: u32, key: u32, key_state: u32) callconv(.c) void {
@@ -191,20 +197,42 @@ fn keyboard_key(data: ?*anyopaque, keyboard: ?*wl.wl_keyboard, serial: u32, time
     _ = time;
     if (data == null) return;
     const state: *WaylandWindowState = @ptrCast(@alignCast(data.?));
+    const is_down = (key_state != 0);
+
+    // Explicitly track modifier keys directly to prevent any ordering race with modifiers event
+    if (key == 42 or key == 54) { // KEY_LEFTSHIFT, KEY_RIGHTSHIFT
+        state.shift_pressed = is_down;
+    } else if (key == 29 or key == 97) { // KEY_LEFTCTRL, KEY_RIGHTCTRL
+        state.ctrl_pressed = is_down;
+    } else if (key == 56 or key == 100) { // KEY_LEFTALT, KEY_RIGHTALT
+        state.alt_pressed = is_down;
+    }
+
+    var modifiers: u32 = 0;
+    if (state.shift_pressed) modifiers |= (1 << 0); // bit 0 = Shift
+    if (state.alt_pressed) modifiers |= (1 << 1);   // bit 1 = Alt
+    if (state.ctrl_pressed) modifiers |= (1 << 2);  // bit 2 = Ctrl
+
     if (global_keyboard_callback) |cb| {
-        cb(key, key_state, state.ctrl_pressed);
+        cb(key, key_state, modifiers);
     }
 }
 
 fn keyboard_modifiers(data: ?*anyopaque, keyboard: ?*wl.wl_keyboard, serial: u32, mods_depressed: u32, mods_latched: u32, mods_locked: u32, group: u32) callconv(.c) void {
     _ = keyboard;
     _ = serial;
-    _ = mods_latched;
     _ = mods_locked;
     _ = group;
     if (data == null) return;
     const state: *WaylandWindowState = @ptrCast(@alignCast(data.?));
-    state.ctrl_pressed = (mods_depressed & 4) != 0;
+    const mods = mods_depressed | mods_latched;
+    // Standard XKB modifier indices:
+    // bit 0 (0x1) = Shift
+    // bit 2 (0x4) = Control
+    // bit 3 (0x8) = Mod1 (Alt)
+    state.shift_pressed = (mods & (1 << 0)) != 0;
+    state.ctrl_pressed = (mods & (1 << 2)) != 0;
+    state.alt_pressed = (mods & (1 << 3)) != 0;
 }
 
 fn keyboard_repeat_info(data: ?*anyopaque, keyboard: ?*wl.wl_keyboard, rate: i32, delay: i32) callconv(.c) void {

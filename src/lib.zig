@@ -489,7 +489,7 @@ pub export fn ZG_SetPointerCallback(cb: ?*const fn (u32, f32, f32, u32, u32) cal
     }
 }
 
-pub export fn ZG_SetKeyboardCallback(cb: ?*const fn (u32, u32, bool) callconv(.c) void) void {
+pub export fn ZG_SetKeyboardCallback(cb: ?*const fn (u32, u32, u32) callconv(.c) void) void {
     if (builtin.os.tag == .linux) {
         vulkan.setKeyboardCallback(cb);
     } else if (builtin.os.tag == .macos) {

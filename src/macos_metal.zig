@@ -195,7 +195,7 @@ pub fn msgSendNSRange(self: ?*anyopaque, op: ?*anyopaque, range: NSRange) void {
 }
 
 pub const PointerEventFn = *const fn (event_type: u32, x: f32, y: f32, button: u32, state: u32) callconv(.c) void;
-pub const KeyboardEventFn = *const fn (key: u32, state: u32, ctrl: bool) callconv(.c) void;
+pub const KeyboardEventFn = *const fn (key: u32, state: u32, modifiers: u32) callconv(.c) void;
 
 var global_pointer_callback: ?PointerEventFn = null;
 var global_keyboard_callback: ?KeyboardEventFn = null;
@@ -327,10 +327,13 @@ pub fn dispatchEvents(window: ?*anyopaque) void {
                     const key_code = key_call(event, sel("keyCode"));
 
                     const flags = type_call(event, sel("modifierFlags"));
-                    const ctrl = (flags & ((1 << 18) | (1 << 20))) != 0; // Control (1<<18) or Command (1<<20)
+                    var mods: u32 = 0;
+                    if ((flags & (1 << 17)) != 0) mods |= (1 << 0); // Shift
+                    if ((flags & (1 << 19)) != 0) mods |= (1 << 1); // Alt/Option
+                    if ((flags & ((1 << 18) | (1 << 20))) != 0) mods |= (1 << 2); // Control or Command
                     const state: u32 = if (ev_type == 10) 1 else 0;
 
-                    kb_cb(@as(u32, key_code), state, ctrl);
+                    kb_cb(@as(u32, key_code), state, mods);
                 }
             }
         }

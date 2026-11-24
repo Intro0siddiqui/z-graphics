@@ -1465,7 +1465,7 @@ pub fn setPointerCallback(cb: ?*const fn (u32, f32, f32, u32, u32) callconv(.c) 
     if (builtin.os.tag == .linux) platform.setPointerCallback(cb);
 }
 
-pub fn setKeyboardCallback(cb: ?*const fn (u32, u32, bool) callconv(.c) void) void {
+pub fn setKeyboardCallback(cb: ?*const fn (u32, u32, u32) callconv(.c) void) void {
     if (builtin.os.tag == .linux) platform.setKeyboardCallback(cb);
 }
 
@@ -3933,9 +3933,6 @@ pub fn uploadTexture(surface: *VulkanSurface, texture: *VulkanTexture, data: ?*c
     if (builtin.os.tag != .linux) return false;
     if (data == null or dataLen == 0) return false;
 
-    const log = builtin.mode == .Debug;
-    if (log) std.debug.print("[Z-GRAPHICS] uploadTexture: data ptr={any} len={} tex={}x{}\n", .{ data, dataLen, texture.width, texture.height });
-
     const is_yuv_upload = texture.format == .YUV420_3Plane or texture.format == .NV12_2Plane or texture.format == .P010_10bit;
     const staging_size = if (is_yuv_upload) @as(u64, texture.width) * @as(u64, texture.height) * 4 else dataLen;
     const staging_info = std.mem.zeroInit(c.VkBufferCreateInfo, .{
@@ -3947,12 +3944,10 @@ pub fn uploadTexture(surface: *VulkanSurface, texture: *VulkanTexture, data: ?*c
 
     var staging: c.VkBuffer = null;
     var r = c.vkCreateBuffer(surface.device, &staging_info, null, &staging);
-    if (log) std.debug.print("[Z-GRAPHICS] uploadTexture: vkCreateBuffer staging result={} handle={any}\n", .{ r, staging });
     if (r != c.VK_SUCCESS) return false;
 
     var mem_reqs: c.VkMemoryRequirements = undefined;
     c.vkGetBufferMemoryRequirements(surface.device, staging, &mem_reqs);
-    if (log) std.debug.print("[Z-GRAPHICS] uploadTexture: staging memReqs size={} alignment={} bits=0x{x}\n", .{ mem_reqs.size, mem_reqs.alignment, mem_reqs.memoryTypeBits });
 
     var alloc_info = std.mem.zeroInit(c.VkMemoryAllocateInfo, .{
         .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
@@ -3973,25 +3968,20 @@ pub fn uploadTexture(surface: *VulkanSurface, texture: *VulkanTexture, data: ?*c
         }
     }
     alloc_info.memoryTypeIndex = found orelse {
-        if (log) std.debug.print("[Z-GRAPHICS] uploadTexture: ERROR no HOST_VISIBLE|HOST_COHERENT mem type found\n", .{});
         c.vkDestroyBuffer(surface.device, staging, null);
         return false;
     };
-    if (log) std.debug.print("[Z-GRAPHICS] uploadTexture: staging memTypeIndex={}\n", .{alloc_info.memoryTypeIndex});
 
     var staging_mem: c.VkDeviceMemory = null;
     r = c.vkAllocateMemory(surface.device, &alloc_info, null, &staging_mem);
-    if (log) std.debug.print("[Z-GRAPHICS] uploadTexture: vkAllocateMemory staging result={} handle={any}\n", .{ r, staging_mem });
     if (r != c.VK_SUCCESS) {
         c.vkDestroyBuffer(surface.device, staging, null);
         return false;
     }
     r = c.vkBindBufferMemory(surface.device, staging, staging_mem, 0);
-    if (log) std.debug.print("[Z-GRAPHICS] uploadTexture: vkBindBufferMemory staging result={}\n", .{r});
 
     var data_ptr: ?*anyopaque = null;
     r = c.vkMapMemory(surface.device, staging_mem, 0, staging_size, 0, &data_ptr);
-    if (log) std.debug.print("[Z-GRAPHICS] uploadTexture: vkMapMemory result={} ptr={any}\n", .{ r, data_ptr });
     if (r != c.VK_SUCCESS) {
         c.vkFreeMemory(surface.device, staging_mem, null);
         c.vkDestroyBuffer(surface.device, staging, null);
@@ -4000,10 +3990,6 @@ pub fn uploadTexture(surface: *VulkanSurface, texture: *VulkanTexture, data: ?*c
     const early_is_yuv = texture.format == .YUV420_3Plane or texture.format == .NV12_2Plane or texture.format == .P010_10bit;
     if (!early_is_yuv) {
         @memcpy(@as([*]u8, @ptrCast(@alignCast(data_ptr)))[0..dataLen], @as([*]const u8, @ptrCast(@alignCast(data)))[0..dataLen]);
-    }
-    if (log) {
-        const check_ptr = @as([*]const u8, @ptrCast(@alignCast(data_ptr)));
-        std.debug.print("[Z-GRAPHICS] uploadTexture: staging[0..4] = 0x{x} 0x{x} 0x{x} 0x{x}\n", .{ check_ptr[0], check_ptr[1], check_ptr[2], check_ptr[3] });
     }
     c.vkUnmapMemory(surface.device, staging_mem);
 
@@ -4019,7 +4005,6 @@ pub fn uploadTexture(surface: *VulkanSurface, texture: *VulkanTexture, data: ?*c
 
     const begin_info = std.mem.zeroInit(c.VkCommandBufferBeginInfo, .{ .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, .flags = 1 }); // VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
     r = c.vkBeginCommandBuffer(surface.transfer_cmd, &begin_info);
-    if (log) std.debug.print("[Z-GRAPHICS] uploadTexture: vkBeginCommandBuffer result={}\n", .{r});
 
     const is_yuv_3plane = texture.format == .YUV420_3Plane;
     const is_nv12 = texture.format == .NV12_2Plane;
@@ -4068,10 +4053,12 @@ pub fn uploadTexture(surface: *VulkanSurface, texture: *VulkanTexture, data: ?*c
                 }
             }
         } else {
-            @memcpy(rgba_buf[0..dataLen], src[0..dataLen]);
+            const copy_len = @min(dataLen, rgba_size);
+            @memcpy(rgba_buf[0..copy_len], src[0..copy_len]);
+            if (copy_len < rgba_size) {
+                @memset(rgba_buf[copy_len..rgba_size], 0);
+            }
         }
-
-        if (log) std.debug.print("[Z-GRAPHICS] uploadTexture: YUV→RGBA converted {} bytes to {} bytes\n", .{ dataLen, rgba_size });
 
         var mapped_ptr: ?*anyopaque = null;
         r = c.vkMapMemory(surface.device, staging_mem, 0, rgba_size, 0, &mapped_ptr);
@@ -4127,7 +4114,6 @@ pub fn uploadTexture(surface: *VulkanSurface, texture: *VulkanTexture, data: ?*c
         barrier.image = texture.image;
         barrier.subresourceRange = .{ .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1 };
 
-        if (log) std.debug.print("[Z-GRAPHICS] uploadTexture: barrier1 oldLayout={} newLayout={} image={any}\n", .{ barrier.oldLayout, barrier.newLayout, barrier.image });
         c.vkCmdPipelineBarrier(surface.transfer_cmd, c.VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, c.VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, null, 0, null, 1, @ptrCast(&barrier));
 
         var region: c.VkBufferImageCopy = std.mem.zeroes(c.VkBufferImageCopy);
@@ -4141,7 +4127,6 @@ pub fn uploadTexture(surface: *VulkanSurface, texture: *VulkanTexture, data: ?*c
         region.imageOffset = .{ .x = 0, .y = 0, .z = 0 };
         region.imageExtent = .{ .width = texture.width, .height = texture.height, .depth = 1 };
 
-        if (log) std.debug.print("[Z-GRAPHICS] uploadTexture: CopyBufferToImage staging={any} image={any} extent={}x{}x{} layerCount={}\n", .{ staging, texture.image, region.imageExtent.width, region.imageExtent.height, region.imageExtent.depth, region.imageSubresource.layerCount });
         c.vkCmdCopyBufferToImage(surface.transfer_cmd, staging, texture.image, c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, @ptrCast(&region));
 
         barrier.oldLayout = c.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
@@ -4149,17 +4134,11 @@ pub fn uploadTexture(surface: *VulkanSurface, texture: *VulkanTexture, data: ?*c
         barrier.srcAccessMask = c.VK_ACCESS_TRANSFER_WRITE_BIT;
         barrier.dstAccessMask = c.VK_ACCESS_SHADER_READ_BIT;
 
-        if (log) std.debug.print("[Z-GRAPHICS] uploadTexture: barrier2 oldLayout={} newLayout={}\n", .{ barrier.oldLayout, barrier.newLayout });
         c.vkCmdPipelineBarrier(surface.transfer_cmd, c.VK_PIPELINE_STAGE_TRANSFER_BIT, c.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, null, 0, null, 1, @ptrCast(&barrier));
     }
 
     r = c.vkEndCommandBuffer(surface.transfer_cmd);
-    if (log) std.debug.print("[Z-GRAPHICS] uploadTexture: vkEndCommandBuffer result={}\n", .{r});
-
     const submitted = submitAndWait(surface, surface.transfer_cmd);
-    if (log) std.debug.print("[Z-GRAPHICS] uploadTexture: submitAndWait={}\n", .{submitted});
-
-    if (log) std.debug.print("[Z-GRAPHICS] uploadTexture: upload complete, image={any}\n", .{texture.image});
 
     c.vkFreeMemory(surface.device, staging_mem, null);
     c.vkDestroyBuffer(surface.device, staging, null);
