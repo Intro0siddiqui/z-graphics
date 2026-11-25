@@ -235,6 +235,13 @@ pub export fn ZG_CheckWindowResize(window: ?ZawraGraphicsHandle, out_w: *u32, ou
     return false;
 }
 
+pub export fn ZG_ShouldClose(window: ?ZawraGraphicsHandle) bool {
+    if (builtin.os.tag == .linux) {
+        return vulkan.shouldClose(@ptrCast(@alignCast(window)));
+    }
+    return false;
+}
+
 pub export fn ZG_GetWaylandDisplay(window: ?ZawraGraphicsHandle) ?*anyopaque {
     if (builtin.os.tag == .linux) return vulkan.getWaylandDisplay(window);
     return null;

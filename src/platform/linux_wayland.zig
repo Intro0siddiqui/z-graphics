@@ -45,11 +45,13 @@ pub const WaylandWindowState = struct {
     height: u32,
     pointer_x: f32 = 0,
     pointer_y: f32 = 0,
+    pointer_on_subsurface: bool = false,
     pointer_button_state: u32 = 0,
     shift_pressed: bool = false,
     ctrl_pressed: bool = false,
     alt_pressed: bool = false,
     resized: bool = false,
+    should_close: bool = false,
 
     pub fn getWlDisplay(self: *const WaylandWindowState) *wl.wl_display {
         return self.display;
@@ -71,9 +73,16 @@ fn wl_fixed_to_f32(f: wl.wl_fixed_t) f32 {
 fn pointer_enter(data: ?*anyopaque, pointer: ?*wl.wl_pointer, serial: u32, surface: ?*wl.wl_surface, sx: wl.wl_fixed_t, sy: wl.wl_fixed_t) callconv(.c) void {
     _ = pointer;
     _ = serial;
-    _ = surface;
     if (data == null) return;
     const state: *WaylandWindowState = @ptrCast(@alignCast(data.?));
+    state.pointer_on_subsurface = (surface != null and surface.? != state.surface);
+    if (state.pointer_on_subsurface) {
+        // Clear sidebar hover state; WPEDisplayWayland handles subsurface pointer events natively.
+        if (global_pointer_callback) |cb| {
+            cb(0, -1.0, -1.0, 0, 0);
+        }
+        return;
+    }
     state.pointer_x = wl_fixed_to_f32(sx);
     state.pointer_y = wl_fixed_to_f32(sy);
     if (global_pointer_callback) |cb| {
@@ -82,10 +91,15 @@ fn pointer_enter(data: ?*anyopaque, pointer: ?*wl.wl_pointer, serial: u32, surfa
 }
 
 fn pointer_leave(data: ?*anyopaque, pointer: ?*wl.wl_pointer, serial: u32, surface: ?*wl.wl_surface) callconv(.c) void {
-    _ = data;
     _ = pointer;
     _ = serial;
-    _ = surface;
+    if (data == null) return;
+    const state: *WaylandWindowState = @ptrCast(@alignCast(data.?));
+    if (surface != null and surface.? == state.surface) {
+        if (global_pointer_callback) |cb| {
+            cb(0, -1.0, -1.0, 0, 0);
+        }
+    }
 }
 
 fn pointer_motion(data: ?*anyopaque, pointer: ?*wl.wl_pointer, time: u32, sx: wl.wl_fixed_t, sy: wl.wl_fixed_t) callconv(.c) void {
@@ -93,6 +107,7 @@ fn pointer_motion(data: ?*anyopaque, pointer: ?*wl.wl_pointer, time: u32, sx: wl
     _ = time;
     if (data == null) return;
     const state: *WaylandWindowState = @ptrCast(@alignCast(data.?));
+    if (state.pointer_on_subsurface) return;
     state.pointer_x = wl_fixed_to_f32(sx);
     state.pointer_y = wl_fixed_to_f32(sy);
     if (global_pointer_callback) |cb| {
@@ -106,6 +121,7 @@ fn pointer_button(data: ?*anyopaque, pointer: ?*wl.wl_pointer, serial: u32, time
     _ = time;
     if (data == null) return;
     const state: *WaylandWindowState = @ptrCast(@alignCast(data.?));
+    if (state.pointer_on_subsurface) return;
     state.pointer_button_state = btn_state;
     // Map linux BTN_LEFT (272 = 0x110) to 1, BTN_RIGHT (273) to 3, BTN_MIDDLE (274) to 2
     const wpe_btn: u32 = if (button == 272) 1 else if (button == 273) 3 else if (button == 274) 2 else button;
@@ -120,6 +136,7 @@ fn pointer_axis(data: ?*anyopaque, pointer: ?*wl.wl_pointer, time: u32, axis: u3
     _ = time;
     if (data == null) return;
     const state: *WaylandWindowState = @ptrCast(@alignCast(data.?));
+    if (state.pointer_on_subsurface) return;
     if (global_pointer_callback) |cb| {
         cb(3, state.pointer_x, state.pointer_y, axis, @bitCast(@as(u32, @truncate(@as(u64, @bitCast(@as(i64, value)))))));
     }
@@ -355,8 +372,10 @@ fn xdg_toplevel_configure(data: ?*anyopaque, toplevel: ?*wl.xdg_toplevel, width:
 }
 
 fn xdg_toplevel_close(data: ?*anyopaque, toplevel: ?*wl.xdg_toplevel) callconv(.c) void {
-    _ = data;
     _ = toplevel;
+    if (data == null) return;
+    const state: *WaylandWindowState = @ptrCast(@alignCast(data.?));
+    state.should_close = true;
 }
 
 const xdg_toplevel_listener = wl.xdg_toplevel_listener{
@@ -540,6 +559,10 @@ pub fn checkResize(state: *WaylandWindowState, out_w: *u32, out_h: *u32) bool {
         return true;
     }
     return false;
+}
+
+pub fn shouldClose(state: *const WaylandWindowState) bool {
+    return state.should_close;
 }
 
 pub fn flush(state: *WaylandWindowState) void {

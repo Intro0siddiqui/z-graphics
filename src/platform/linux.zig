@@ -91,6 +91,17 @@ pub fn checkResize(window: ?*anyopaque, out_w: *u32, out_h: *u32) bool {
     return false;
 }
 
+pub fn shouldClose(window: ?*anyopaque) bool {
+    if (window) |w| {
+        const win: *LinuxWindow = @ptrCast(@alignCast(w));
+        switch (win.type) {
+            .Wayland => return wayland.shouldClose(@ptrCast(@alignCast(win.handle))),
+            .X11 => return false,
+        }
+    }
+    return false;
+}
+
 pub fn setPointerCallback(cb: ?wayland.PointerEventFn) void {
     wayland.setPointerCallback(cb);
 }

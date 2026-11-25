@@ -1461,6 +1461,11 @@ pub fn checkWindowResize(window: ?*anyopaque, out_w: *u32, out_h: *u32) bool {
     return platform.checkResize(window, out_w, out_h);
 }
 
+pub fn shouldClose(window: ?*anyopaque) bool {
+    if (builtin.os.tag != .linux) return false;
+    return platform.shouldClose(window);
+}
+
 pub fn setPointerCallback(cb: ?*const fn (u32, f32, f32, u32, u32) callconv(.c) void) void {
     if (builtin.os.tag == .linux) platform.setPointerCallback(cb);
 }
