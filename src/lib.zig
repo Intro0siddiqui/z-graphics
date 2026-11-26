@@ -21,6 +21,7 @@ export fn _force_zgraphics_exports() void {
     _ = ZG_GetWaylandDisplay;
     _ = ZG_GetWaylandSurface;
     _ = ZG_GetWaylandSubcompositor;
+    _ = ZG_GetWaylandCompositor;
 }
 
 /// The internal structure representing a graphics surface.
@@ -82,6 +83,11 @@ pub export fn ZG_Initialize() bool {
     return true;
 }
 
+/// Creates a graphics surface bound to an optional caller-owned `window`
+/// (pass `null` for an offscreen surface).
+///
+/// Ownership: `window` remains owned by the caller; `ZG_DestroySurface` does
+/// not destroy `window`. Call `ZG_DestroyWindow` separately when done.
 pub export fn ZG_CreateSurface(window: ?ZawraGraphicsHandle, width: u32, height: u32) ?ZawraGraphicsHandle {
     if (builtin.os.tag == .linux) return @ptrCast(vulkan.createSurface(window, width, height));
     if (builtin.os.tag == .macos) return @ptrCast(macos_metal.createSurface(window, width, height));
@@ -89,6 +95,15 @@ pub export fn ZG_CreateSurface(window: ?ZawraGraphicsHandle, width: u32, height:
     return null;
 }
 
+/// Destroys a graphics surface created by `ZG_CreateSurface`.
+///
+/// Ownership & lifetime invariants:
+/// - Does NOT destroy the `window` handle passed to `ZG_CreateSurface`; the
+///   caller retains ownership and must call `ZG_DestroyWindow` separately.
+/// - Parent-outlives-children: all child resources created from this surface
+///   (buffers, pipelines, compute pipelines, shader modules, textures,
+///   framebuffers, renderbuffers, timer queries, MRT/stencil surfaces) MUST be
+///   destroyed before calling `ZG_DestroySurface`.
 pub export fn ZG_DestroySurface(handle: ZawraGraphicsHandle) void {
     if (builtin.os.tag == .linux) vulkan.destroySurface(@ptrCast(@alignCast(handle)));
     if (builtin.os.tag == .macos) macos_metal.destroySurface(@ptrCast(@alignCast(handle)));
@@ -257,6 +272,11 @@ pub export fn ZG_GetWaylandSubcompositor(window: ?ZawraGraphicsHandle) ?*anyopaq
     return null;
 }
 
+pub export fn ZG_GetWaylandCompositor(window: ?ZawraGraphicsHandle) ?*anyopaque {
+    if (builtin.os.tag == .linux) return vulkan.getWaylandCompositor(window);
+    return null;
+}
+
 pub const ZawraGraphicsTextureFormat = enum(u32) {
     R8G8B8A8_Unorm = 0,
     YUV420_3Plane = 1,
@@ -368,7 +388,8 @@ pub export fn ZG_ReadbackTexture(handle: ?ZawraGraphicsHandle, texture: ZawraGra
 /// linear dma-buf). Prefer ZG_ImportTextureDMABuf when stride/offset/modifier
 /// metadata is available.
 ///
-/// `fd` stays owned by the caller.
+/// Ownership: `fd` stays owned by the caller on both success and failure
+/// (on Linux/Vulkan the fd is duplicated internally before importing).
 pub export fn ZG_ImportTextureFD(handle: ?ZawraGraphicsHandle, fd: i32, desc: *const ZawraGraphicsTextureDesc) ?ZawraGraphicsTexture {
     if (handle == null) return null;
     if (builtin.os.tag == .linux) return @ptrCast(vulkan.importTextureFD(@ptrCast(@alignCast(handle.?)), fd, desc));
@@ -378,16 +399,23 @@ pub export fn ZG_ImportTextureFD(handle: ?ZawraGraphicsHandle, fd: i32, desc: *c
 
 /// Imports a dma-buf using explicit format-modifier, stride and offset
 /// metadata in ZawraGraphicsDMABufInfo.
-/// Ownership of info.fd is transferred to Vulkan on success.
+///
+/// Ownership: unconditionally takes ownership of `info.fd` on Linux —
+/// ownership is transferred to Vulkan on success, and `info.fd` is closed
+/// on failure.
 pub export fn ZG_ImportTextureDMABuf(
     handle: ?ZawraGraphicsHandle,
     info: *const ZawraGraphicsDMABufInfo,
 ) ?ZawraGraphicsTexture {
-    if (handle == null) return null;
+    if (handle == null) {
+        if (builtin.os.tag == .linux and info.fd >= 0) _ = std.c.close(info.fd);
+        return null;
+    }
     if (builtin.os.tag == .linux) return @ptrCast(vulkan.importTextureDMABuf(@ptrCast(@alignCast(handle.?)), info));
     return null;
 }
 
+// Single-instance global WPE texture state (one active browser view).
 pub var global_wpe_texture: ?ZawraGraphicsTexture = null;
 pub var global_wpe_texture_setter: ?*const fn (?ZawraGraphicsTexture) callconv(.c) void = null;
 
@@ -432,7 +460,8 @@ pub export fn ZawraGraphics_BindWpeDMABuf(surface: ?ZawraGraphicsHandle, fd: i32
     return ZG_BindWpeDMABuf(surface, fd, width, height);
 }
 
-// ── WebKit Navigation & Input FFI Hooks ──────────────────────────────────────────
+// ── WebKit Navigation & Input FFI Hooks (Single-Instance Contract) ───────────────
+// These globals assume a single active browser/shell instance per process.
 
 pub var global_load_url_handler: ?*const fn (url_ptr: [*]const u8, url_len: usize) callconv(.c) void = null;
 
@@ -486,8 +515,12 @@ pub fn Zawra_GetRecentHistory(limit: u32, out_json_buf: [*]u8, out_max_len: usiz
     return 0;
 }
 
-// ── Platform Event Routing ───────────────────────────────────────────────────────
+// ── Platform Event Routing (Single-Window Contract) ──────────────────────────────
+// Callbacks registered here are process-global and assume a single active window.
+// `ZG_DestroyWindow` clears both callbacks to prevent stale invocations after
+// window teardown; callers may also pass `null` explicitly.
 
+/// Registers the process-global pointer event callback (single-window contract).
 pub export fn ZG_SetPointerCallback(cb: ?*const fn (u32, f32, f32, u32, u32) callconv(.c) void) void {
     if (builtin.os.tag == .linux) {
         vulkan.setPointerCallback(cb);
@@ -496,6 +529,14 @@ pub export fn ZG_SetPointerCallback(cb: ?*const fn (u32, f32, f32, u32, u32) cal
     }
 }
 
+/// Registers the process-global scroll event callback (single-window contract).
+pub export fn ZG_SetScrollCallback(cb: ?*const fn (f32, f32, f64, f64, u32, u32, u32) callconv(.c) void) void {
+    if (builtin.os.tag == .linux) {
+        vulkan.setScrollCallback(cb);
+    }
+}
+
+/// Registers the process-global keyboard event callback (single-window contract).
 pub export fn ZG_SetKeyboardCallback(cb: ?*const fn (u32, u32, u32) callconv(.c) void) void {
     if (builtin.os.tag == .linux) {
         vulkan.setKeyboardCallback(cb);

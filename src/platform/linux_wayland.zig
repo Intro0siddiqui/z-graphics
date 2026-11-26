@@ -15,13 +15,21 @@ const wl_pollfd = extern struct {
 const POLLIN: c_short = 0x0001;
 
 pub const PointerEventFn = *const fn (event_type: u32, x: f32, y: f32, button: u32, state: u32) callconv(.c) void;
+pub const ScrollEventFn = *const fn (x: f32, y: f32, delta_x: f64, delta_y: f64, source: u32, time_ms: u32, is_stop: u32) callconv(.c) void;
 pub const KeyboardEventFn = *const fn (key: u32, state: u32, modifiers: u32) callconv(.c) void;
 
+/// Process-global input callbacks (single-window contract: one active window
+/// per process). Cleared automatically in `destroyWindow`.
 pub var global_pointer_callback: ?PointerEventFn = null;
+pub var global_scroll_callback: ?ScrollEventFn = null;
 pub var global_keyboard_callback: ?KeyboardEventFn = null;
 
 pub fn setPointerCallback(cb: ?PointerEventFn) void {
     global_pointer_callback = cb;
+}
+
+pub fn setScrollCallback(cb: ?ScrollEventFn) void {
+    global_scroll_callback = cb;
 }
 
 pub fn setKeyboardCallback(cb: ?KeyboardEventFn) void {
@@ -45,8 +53,13 @@ pub const WaylandWindowState = struct {
     height: u32,
     pointer_x: f32 = 0,
     pointer_y: f32 = 0,
-    pointer_on_subsurface: bool = false,
     pointer_button_state: u32 = 0,
+    scroll_has_event: bool = false,
+    scroll_delta_x: f64 = 0,
+    scroll_delta_y: f64 = 0,
+    scroll_source: u32 = 0,
+    scroll_time: u32 = 0,
+    scroll_is_stop: bool = false,
     shift_pressed: bool = false,
     ctrl_pressed: bool = false,
     alt_pressed: bool = false,
@@ -64,6 +77,10 @@ pub const WaylandWindowState = struct {
     pub fn getWlSubcompositor(self: *const WaylandWindowState) ?*wl.wl_subcompositor {
         return self.subcompositor;
     }
+
+    pub fn getWlCompositor(self: *const WaylandWindowState) ?*wl.wl_compositor {
+        return self.compositor;
+    }
 };
 
 fn wl_fixed_to_f32(f: wl.wl_fixed_t) f32 {
@@ -73,16 +90,9 @@ fn wl_fixed_to_f32(f: wl.wl_fixed_t) f32 {
 fn pointer_enter(data: ?*anyopaque, pointer: ?*wl.wl_pointer, serial: u32, surface: ?*wl.wl_surface, sx: wl.wl_fixed_t, sy: wl.wl_fixed_t) callconv(.c) void {
     _ = pointer;
     _ = serial;
+    _ = surface;
     if (data == null) return;
     const state: *WaylandWindowState = @ptrCast(@alignCast(data.?));
-    state.pointer_on_subsurface = (surface != null and surface.? != state.surface);
-    if (state.pointer_on_subsurface) {
-        // Clear sidebar hover state; WPEDisplayWayland handles subsurface pointer events natively.
-        if (global_pointer_callback) |cb| {
-            cb(0, -1.0, -1.0, 0, 0);
-        }
-        return;
-    }
     state.pointer_x = wl_fixed_to_f32(sx);
     state.pointer_y = wl_fixed_to_f32(sy);
     if (global_pointer_callback) |cb| {
@@ -107,7 +117,6 @@ fn pointer_motion(data: ?*anyopaque, pointer: ?*wl.wl_pointer, time: u32, sx: wl
     _ = time;
     if (data == null) return;
     const state: *WaylandWindowState = @ptrCast(@alignCast(data.?));
-    if (state.pointer_on_subsurface) return;
     state.pointer_x = wl_fixed_to_f32(sx);
     state.pointer_y = wl_fixed_to_f32(sy);
     if (global_pointer_callback) |cb| {
@@ -121,7 +130,6 @@ fn pointer_button(data: ?*anyopaque, pointer: ?*wl.wl_pointer, serial: u32, time
     _ = time;
     if (data == null) return;
     const state: *WaylandWindowState = @ptrCast(@alignCast(data.?));
-    if (state.pointer_on_subsurface) return;
     state.pointer_button_state = btn_state;
     // Map linux BTN_LEFT (272 = 0x110) to 1, BTN_RIGHT (273) to 3, BTN_MIDDLE (274) to 2
     const wpe_btn: u32 = if (button == 272) 1 else if (button == 273) 3 else if (button == 274) 2 else button;
@@ -133,31 +141,63 @@ fn pointer_button(data: ?*anyopaque, pointer: ?*wl.wl_pointer, serial: u32, time
 
 fn pointer_axis(data: ?*anyopaque, pointer: ?*wl.wl_pointer, time: u32, axis: u32, value: wl.wl_fixed_t) callconv(.c) void {
     _ = pointer;
-    _ = time;
     if (data == null) return;
     const state: *WaylandWindowState = @ptrCast(@alignCast(data.?));
-    if (state.pointer_on_subsurface) return;
-    if (global_pointer_callback) |cb| {
-        cb(3, state.pointer_x, state.pointer_y, axis, @bitCast(@as(u32, @truncate(@as(u64, @bitCast(@as(i64, value)))))));
+    // WPE negates Wayland wl_pointer.axis fixed-point deltas.
+    const delta: f64 = -@as(f64, @floatFromInt(value)) / 256.0;
+    if (axis == 1) {
+        state.scroll_delta_x += delta;
+    } else if (axis == 0) {
+        state.scroll_delta_y += delta;
     }
+    state.scroll_time = time;
+    state.scroll_has_event = true;
 }
 
 fn pointer_frame(data: ?*anyopaque, pointer: ?*wl.wl_pointer) callconv(.c) void {
-    _ = data;
     _ = pointer;
+    if (data == null) return;
+    const state: *WaylandWindowState = @ptrCast(@alignCast(data.?));
+    if (state.scroll_has_event) {
+        if (global_scroll_callback) |cb| {
+            cb(
+                state.pointer_x,
+                state.pointer_y,
+                state.scroll_delta_x,
+                state.scroll_delta_y,
+                state.scroll_source,
+                state.scroll_time,
+                if (state.scroll_is_stop) 1 else 0,
+            );
+        }
+        state.scroll_has_event = false;
+        state.scroll_delta_x = 0;
+        state.scroll_delta_y = 0;
+        state.scroll_is_stop = false;
+    }
 }
 
 fn pointer_axis_source(data: ?*anyopaque, pointer: ?*wl.wl_pointer, axis_source: u32) callconv(.c) void {
-    _ = data;
     _ = pointer;
-    _ = axis_source;
+    if (data == null) return;
+    const state: *WaylandWindowState = @ptrCast(@alignCast(data.?));
+    // Map WL_POINTER_AXIS_SOURCE_* to WPEInputSource:
+    // 0 (WHEEL) -> 0 (MOUSE), 1 (FINGER) -> 4 (TOUCHPAD), 2 (CONTINUOUS) -> 5 (TRACKPOINT)
+    state.scroll_source = switch (axis_source) {
+        1 => 4,
+        2 => 5,
+        else => 0,
+    };
 }
 
 fn pointer_axis_stop(data: ?*anyopaque, pointer: ?*wl.wl_pointer, time: u32, axis: u32) callconv(.c) void {
-    _ = data;
     _ = pointer;
-    _ = time;
     _ = axis;
+    if (data == null) return;
+    const state: *WaylandWindowState = @ptrCast(@alignCast(data.?));
+    state.scroll_is_stop = true;
+    state.scroll_time = time;
+    state.scroll_has_event = true;
 }
 
 fn pointer_axis_discrete(data: ?*anyopaque, pointer: ?*wl.wl_pointer, axis: u32, discrete: i32) callconv(.c) void {
@@ -520,6 +560,9 @@ pub fn createVkSurface(
 }
 
 pub fn destroyWindow(state: *WaylandWindowState) void {
+    global_pointer_callback = null;
+    global_scroll_callback = null;
+    global_keyboard_callback = null;
     if (state.pointer) |p| wl.wl_pointer_release(p);
     if (state.keyboard) |k| wl.wl_keyboard_release(k);
     if (state.seat) |s| wl.wl_seat_release(s);
@@ -547,6 +590,13 @@ pub export fn ZG_Wayland_GetSurface(state: ?*WaylandWindowState) ?*anyopaque {
 pub export fn ZG_Wayland_GetSubcompositor(state: ?*WaylandWindowState) ?*anyopaque {
     if (state) |s| {
         if (s.getWlSubcompositor()) |sub| return @ptrCast(sub);
+    }
+    return null;
+}
+
+pub export fn ZG_Wayland_GetCompositor(state: ?*WaylandWindowState) ?*anyopaque {
+    if (state) |s| {
+        if (s.getWlCompositor()) |comp| return @ptrCast(comp);
     }
     return null;
 }

@@ -36,6 +36,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     std.debug.print("z-graphics initialized successfully\n", .{});
 
     const window = zgraphics.ZG_CreateWindow(474, 323);
+    defer zgraphics.ZG_DestroyWindow(window);
     const surface = zgraphics.ZG_CreateSurface(window, 474, 323) orelse {
         std.debug.print("Surface creation failed\n", .{});
         return;
@@ -142,6 +143,7 @@ fn testImportTextureFD(surface: zgraphics.ZawraGraphicsHandle) void {
         std.debug.print("testImportTextureFD: SKIP - exportSurfaceFD returned fd={d} (external memory not available)\n", .{fd});
         return;
     }
+    defer _ = std.os.linux.close(fd);
     std.debug.print("testImportTextureFD: exported fd={d}\n", .{fd});
 
     const import_desc = zgraphics.ZawraGraphicsTextureDesc{

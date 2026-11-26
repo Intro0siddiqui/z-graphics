@@ -197,6 +197,8 @@ pub fn msgSendNSRange(self: ?*anyopaque, op: ?*anyopaque, range: NSRange) void {
 pub const PointerEventFn = *const fn (event_type: u32, x: f32, y: f32, button: u32, state: u32) callconv(.c) void;
 pub const KeyboardEventFn = *const fn (key: u32, state: u32, modifiers: u32) callconv(.c) void;
 
+// Process-global input callbacks (single-window contract: one active window
+// per process). Cleared automatically in `destroyWindow`.
 var global_pointer_callback: ?PointerEventFn = null;
 var global_keyboard_callback: ?KeyboardEventFn = null;
 var current_window_height: f64 = 720.0;
@@ -262,6 +264,8 @@ pub fn createWindow(width: u32, height: u32) ?*anyopaque {
 
 pub fn destroyWindow(window: ?*anyopaque) void {
     if (builtin.os.tag != .macos) return;
+    global_pointer_callback = null;
+    global_keyboard_callback = null;
     if (window) |win| {
         _ = msgSend0(win, sel("close"));
     }

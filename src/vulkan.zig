@@ -1439,6 +1439,19 @@ pub const VulkanSurface = struct {
     msaa_depth_image: c.VkImage = null,
     msaa_depth_memory: c.VkDeviceMemory = null,
     msaa_depth_view: c.VkImageView = null,
+    live_children: std.atomic.Value(u32) = std.atomic.Value(u32).init(0),
+
+    pub fn retainChild(self: *VulkanSurface) void {
+        _ = self.live_children.fetchAdd(1, .monotonic);
+    }
+
+    pub fn releaseChild(self: *VulkanSurface) void {
+        const prev = self.live_children.fetchSub(1, .release);
+        if (prev == 0) {
+            _ = self.live_children.fetchAdd(1, .monotonic);
+            std.debug.print("[Z-GRAPHICS] ERROR: VulkanSurface.releaseChild underflow\n", .{});
+        }
+    }
 };
 
 pub fn createWindow(width: u32, height: u32) ?*anyopaque {
@@ -1470,6 +1483,10 @@ pub fn setPointerCallback(cb: ?*const fn (u32, f32, f32, u32, u32) callconv(.c) 
     if (builtin.os.tag == .linux) platform.setPointerCallback(cb);
 }
 
+pub fn setScrollCallback(cb: ?*const fn (f32, f32, f64, f64, u32, u32, u32) callconv(.c) void) void {
+    if (builtin.os.tag == .linux) platform.setScrollCallback(cb);
+}
+
 pub fn setKeyboardCallback(cb: ?*const fn (u32, u32, u32) callconv(.c) void) void {
     if (builtin.os.tag == .linux) platform.setKeyboardCallback(cb);
 }
@@ -1487,6 +1504,11 @@ pub fn getWaylandSurface(window: ?*anyopaque) ?*anyopaque {
 pub fn getWaylandSubcompositor(window: ?*anyopaque) ?*anyopaque {
     if (builtin.os.tag != .linux) return null;
     return platform.getWlSubcompositor(window);
+}
+
+pub fn getWaylandCompositor(window: ?*anyopaque) ?*anyopaque {
+    if (builtin.os.tag != .linux) return null;
+    return platform.getWlCompositor(window);
 }
 
 fn findMemoryType(physical_device: c.VkPhysicalDevice, type_filter: u32, properties: u32) ?u32 {
@@ -2587,6 +2609,10 @@ pub fn createSurface(window: ?*anyopaque, width: u32, height: u32) ?*VulkanSurfa
 
 pub fn destroySurface(surface: *VulkanSurface) void {
     if (builtin.os.tag != .linux) return;
+    const remaining_children = surface.live_children.load(.acquire);
+    if (remaining_children != 0) {
+        std.debug.print("[Z-GRAPHICS] ERROR: destroySurface called with {d} live child objects; caller must destroy all child resources before destroying the surface\n", .{remaining_children});
+    }
     // Nothing may still be in flight when objects are destroyed.
     if (surface.device != null) _ = c.vkDeviceWaitIdle(surface.device);
     if (surface.swapchain != null) {
@@ -2616,7 +2642,7 @@ pub fn destroySurface(surface: *VulkanSurface) void {
     }
     if (surface.device != null) c.vkDestroyDevice(surface.device, null);
     if (surface.instance != null) c.vkDestroyInstance(surface.instance, null);
-    platform.destroyWindow(surface.window);
+    // `surface.window` is owned by the caller and must be destroyed separately via ZG_DestroyWindow.
     std.heap.page_allocator.destroy(surface);
 }
 
@@ -3012,12 +3038,14 @@ pub fn createBuffer(surface: *VulkanSurface, size: usize, buffer_type: u32) ?*Vu
 
     const buf = std.heap.page_allocator.create(VulkanBuffer) catch return null;
     buf.* = .{ .buffer = buffer, .memory = memory, .size = size };
+    surface.retainChild();
     return buf;
 }
 pub fn destroyBuffer(surface: *VulkanSurface, buffer: *VulkanBuffer) void {
     if (buffer.buffer != null) c.vkDestroyBuffer(surface.device, buffer.buffer, null);
     if (buffer.memory != null) c.vkFreeMemory(surface.device, buffer.memory, null);
     std.heap.page_allocator.destroy(buffer);
+    surface.releaseChild();
 }
 
 pub const LayerState = struct {
@@ -3472,6 +3500,7 @@ pub fn createPipeline(surface: *VulkanSurface, desc: *const @import("lib.zig").P
 
     const vulkan_pipeline = std.heap.page_allocator.create(VulkanPipeline) catch return null;
     vulkan_pipeline.* = .{ .pipeline = graphics_pipeline, .layout = pipeline_layout };
+    surface.retainChild();
     std.debug.print("[ZG-DIAG] createPipeline OK: pipeline={any} layout={any} msaa={d} dyn_states=2\n", .{ graphics_pipeline, pipeline_layout, surface.msaa_samples });
     return vulkan_pipeline;
 }
@@ -3481,6 +3510,7 @@ pub fn destroyPipeline(surface: *VulkanSurface, pipeline: *VulkanPipeline) void 
     if (pipeline.pipeline != null) c.vkDestroyPipeline(surface.device, pipeline.pipeline, null);
     if (pipeline.layout != null) c.vkDestroyPipelineLayout(surface.device, pipeline.layout, null);
     std.heap.page_allocator.destroy(pipeline);
+    surface.releaseChild();
 }
 
 pub fn cmdBindPipeline(cmd: *VulkanCommandBuffer, pipeline: *VulkanPipeline) void {
@@ -3584,6 +3614,7 @@ pub fn createComputePipeline(
         .descriptor_set = descriptor_set,
         .surface = surface,
     };
+    surface.retainChild();
     return pipeline;
 }
 
@@ -3593,6 +3624,7 @@ pub fn destroyComputePipeline(surface: *VulkanSurface, pipeline: *VulkanComputeP
     if (pipeline.layout != null) c.vkDestroyPipelineLayout(surface.device, pipeline.layout, null);
     if (pipeline.descriptor_set_layout != null) c.vkDestroyDescriptorSetLayout(surface.device, pipeline.descriptor_set_layout, null);
     std.heap.page_allocator.destroy(pipeline);
+    surface.releaseChild();
 }
 
 pub fn cmdBindComputePipeline(cmd: *VulkanCommandBuffer, pipeline: *VulkanComputePipeline) void {
@@ -3661,6 +3693,7 @@ pub fn createStorageBuffer(surface: *VulkanSurface, size: u32) ?*VulkanBuffer {
 
     const buf = std.heap.page_allocator.create(VulkanBuffer) catch return null;
     buf.* = .{ .buffer = buffer, .memory = memory, .size = size };
+    surface.retainChild();
     return buf;
 }
 
@@ -4207,6 +4240,7 @@ pub fn createUniformBuffer(surface: *VulkanSurface, size: usize) ?*VulkanBuffer 
 
     const buf = std.heap.page_allocator.create(VulkanBuffer) catch return null;
     buf.* = .{ .buffer = buffer, .memory = memory, .size = size };
+    surface.retainChild();
     return buf;
 }
 
@@ -4437,6 +4471,7 @@ fn createYUVTexture(surface: *VulkanSurface, desc: *const zgraphics.ZawraGraphic
     }
 
     if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] createYUVTexture: success, format={} {}x{}\n", .{ vk_format, desc.width, desc.height });
+    surface.retainChild();
     return tex;
 }
 
@@ -4544,6 +4579,7 @@ pub fn createTexture(surface: *VulkanSurface, desc: *const zgraphics.ZawraGraphi
     } else {
         if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] createTexture: WARNING - descriptor_set_layout={any} descriptor_pool={any}\n", .{ surface.descriptor_set_layout, surface.descriptor_pool });
     }
+    surface.retainChild();
     return tex;
 }
 
@@ -4668,6 +4704,7 @@ fn finishImportedTexture(
     if (surface.descriptor_set_layout != null and surface.descriptor_pool != null) {
         tex.descriptor_set = allocateDescriptorSet(surface, sampler, view) orelse tex.descriptor_set;
     }
+    surface.retainChild();
     return tex;
 }
 
@@ -4675,6 +4712,9 @@ fn finishImportedTexture(
 /// (typically VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT from the same GPU).
 /// For cross-device/cross-process dma-buf imports use importTextureDMABuf,
 /// which also carries stride/offset/modifier metadata.
+///
+/// `fd` stays owned by the caller on both success and failure (duplicated
+/// internally before `vkAllocateMemory`).
 pub fn importTextureFD(surface: *VulkanSurface, fd: i32, desc: *const zgraphics.ZawraGraphicsTextureDesc) ?*VulkanTexture {
     if (builtin.os.tag != .linux) return null;
     if (fd < 0) {
@@ -4721,10 +4761,15 @@ pub fn importTextureFD(surface: *VulkanSurface, fd: i32, desc: *const zgraphics.
         var mem_reqs: c.VkMemoryRequirements = undefined;
         c.vkGetImageMemoryRequirements(surface.device, image, &mem_reqs);
 
+        const dup_fd = std.c.dup(fd);
+        if (dup_fd < 0) {
+            c.vkDestroyImage(surface.device, image, null);
+            continue;
+        }
         var import_fd_info = std.mem.zeroInit(c.VkImportMemoryFdInfoKHR, .{
             .sType = c.VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR,
             .handleType = candidate.handle_type,
-            .fd = fd,
+            .fd = dup_fd,
         });
         const alloc_info = std.mem.zeroInit(c.VkMemoryAllocateInfo, .{
             .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
@@ -4735,9 +4780,12 @@ pub fn importTextureFD(surface: *VulkanSurface, fd: i32, desc: *const zgraphics.
 
         var memory: c.VkDeviceMemory = null;
         if (c.vkAllocateMemory(surface.device, &alloc_info, null, &memory) != c.VK_SUCCESS) {
+            _ = std.c.close(dup_fd);
             c.vkDestroyImage(surface.device, image, null);
             continue;
         }
+        // Vulkan took ownership of dup_fd on vkAllocateMemory success;
+        // caller's original `fd` remains owned by caller.
         if (c.vkBindImageMemory(surface.device, image, memory, 0) != c.VK_SUCCESS) {
             c.vkFreeMemory(surface.device, memory, null);
             c.vkDestroyImage(surface.device, image, null);
@@ -4902,6 +4950,7 @@ pub fn createShaderModulePublic(surface: *VulkanSurface, spirv: [*]const u8, spi
         return null;
     };
     sm.* = .{ .module = vk_module };
+    surface.retainChild();
     return sm;
 }
 
@@ -4909,6 +4958,7 @@ pub fn destroyShaderModulePublic(surface: *VulkanSurface, module: *VulkanShaderM
     if (builtin.os.tag != .linux) return;
     if (module.module != null) c.vkDestroyShaderModule(surface.device, module.module, null);
     std.heap.page_allocator.destroy(module);
+    surface.releaseChild();
 }
 
 pub fn createPipelineFromShadersPublic(surface: *VulkanSurface, vert: *VulkanShaderModule, frag: *VulkanShaderModule, desc: ?*const @import("lib.zig").PipelineDesc) ?*VulkanPipeline {
@@ -5034,6 +5084,7 @@ pub fn createPipelineFromShadersPublic(surface: *VulkanSurface, vert: *VulkanSha
 
     const vulkan_pipeline = std.heap.page_allocator.create(VulkanPipeline) catch return null;
     vulkan_pipeline.* = .{ .pipeline = graphics_pipeline, .layout = pipeline_layout };
+    surface.retainChild();
     return vulkan_pipeline;
 }
 pub fn createPipelineFromShadersWithLayout(
@@ -5193,6 +5244,7 @@ pub fn createPipelineFromShadersWithLayout(
 
     const vulkan_pipeline = std.heap.page_allocator.create(VulkanPipeline) catch return null;
     vulkan_pipeline.* = .{ .pipeline = graphics_pipeline, .layout = pipeline_layout };
+    surface.retainChild();
     return vulkan_pipeline;
 }
 
@@ -5210,6 +5262,7 @@ pub fn destroyTexture(surface: *VulkanSurface, texture: *VulkanTexture) void {
     if (texture.memory != null) c.vkFreeMemory(surface.device, texture.memory, null);
     if (texture.image != null) c.vkDestroyImage(surface.device, texture.image, null);
     std.heap.c_allocator.destroy(texture);
+    surface.releaseChild();
 }
 
 pub fn setTextureParams(
@@ -5546,6 +5599,7 @@ pub fn createTimerQuery(surface: *VulkanSurface) ?*VulkanTimerQuery {
         .result_memory = result_memory,
     };
     std.debug.print("[Z-GRAPHICS] createTimerQuery: period_ns={d:.6} valid_bits={d}\n", .{ period_f64, valid_bits });
+    surface.retainChild();
     return query;
 }
 
@@ -5554,6 +5608,7 @@ pub fn destroyTimerQuery(surface: *VulkanSurface, query: *VulkanTimerQuery) void
     if (query.result_buffer != null) c.vkDestroyBuffer(surface.device, query.result_buffer, null);
     if (query.query_pool != null) c.vkDestroyQueryPool(surface.device, query.query_pool, null);
     std.heap.page_allocator.destroy(query);
+    surface.releaseChild();
 }
 
 pub fn cmdResetQueryPool(cmd: *VulkanCommandBuffer, query: *VulkanTimerQuery) void {
@@ -5784,22 +5839,25 @@ pub fn createMRTSurface(surface: *VulkanSurface, width: u32, height: u32, attach
         .began = false,
     };
     std.debug.print("[Z-GRAPHICS] createMRTSurface: {}x{} attachments={}\n", .{ width, height, count });
+    surface.retainChild();
     return mrt;
 }
 
 pub fn destroyMRTSurface(mrt: *MRTSurface) void {
-    if (mrt.cmd_pool != null) c.vkDestroyCommandPool(mrt.surface.device, mrt.cmd_pool, null);
-    if (mrt.framebuffer != null) c.vkDestroyFramebuffer(mrt.surface.device, mrt.framebuffer, null);
-    if (mrt.render_pass != null) c.vkDestroyRenderPass(mrt.surface.device, mrt.render_pass, null);
+    const parent = mrt.surface;
+    if (mrt.cmd_pool != null) c.vkDestroyCommandPool(parent.device, mrt.cmd_pool, null);
+    if (mrt.framebuffer != null) c.vkDestroyFramebuffer(parent.device, mrt.framebuffer, null);
+    if (mrt.render_pass != null) c.vkDestroyRenderPass(parent.device, mrt.render_pass, null);
     for (0..mrt.attachment_count) |i| {
-        if (mrt.color_views[i] != null) c.vkDestroyImageView(mrt.surface.device, mrt.color_views[i], null);
-        if (mrt.color_images[i] != null) c.vkDestroyImage(mrt.surface.device, mrt.color_images[i], null);
-        if (mrt.color_memories[i] != null) c.vkFreeMemory(mrt.surface.device, mrt.color_memories[i], null);
+        if (mrt.color_views[i] != null) c.vkDestroyImageView(parent.device, mrt.color_views[i], null);
+        if (mrt.color_images[i] != null) c.vkDestroyImage(parent.device, mrt.color_images[i], null);
+        if (mrt.color_memories[i] != null) c.vkFreeMemory(parent.device, mrt.color_memories[i], null);
     }
-    if (mrt.depth_view != null) c.vkDestroyImageView(mrt.surface.device, mrt.depth_view, null);
-    if (mrt.depth_image != null) c.vkDestroyImage(mrt.surface.device, mrt.depth_image, null);
-    if (mrt.depth_memory != null) c.vkFreeMemory(mrt.surface.device, mrt.depth_memory, null);
+    if (mrt.depth_view != null) c.vkDestroyImageView(parent.device, mrt.depth_view, null);
+    if (mrt.depth_image != null) c.vkDestroyImage(parent.device, mrt.depth_image, null);
+    if (mrt.depth_memory != null) c.vkFreeMemory(parent.device, mrt.depth_memory, null);
     std.heap.page_allocator.destroy(mrt);
+    parent.releaseChild();
 }
 
 pub fn beginMRTCommandBuffer(mrt: *MRTSurface) ?*VulkanCommandBuffer {
@@ -6272,30 +6330,33 @@ pub fn createStencilSurface(surface: *VulkanSurface, width: u32, height: u32) ?*
         .began = false,
     };
     std.debug.print("[Z-GRAPHICS] createStencilSurface: {}x{} OK\n", .{ width, height });
+    surface.retainChild();
     return stencil;
 }
 
 pub fn destroyStencilSurface(stencil: *StencilSurface) void {
-    if (stencil.cmd_pool != null) c.vkDestroyCommandPool(stencil.surface.device, stencil.cmd_pool, null);
-    if (stencil.framebuffer != null) c.vkDestroyFramebuffer(stencil.surface.device, stencil.framebuffer, null);
-    if (stencil.write_pipeline != null) c.vkDestroyPipeline(stencil.surface.device, stencil.write_pipeline, null);
-    if (stencil.write_pipeline_layout != null) c.vkDestroyPipelineLayout(stencil.surface.device, stencil.write_pipeline_layout, null);
-    if (stencil.write_dsl != null) c.vkDestroyDescriptorSetLayout(stencil.surface.device, stencil.write_dsl, null);
-    if (stencil.test_pipeline != null) c.vkDestroyPipeline(stencil.surface.device, stencil.test_pipeline, null);
-    if (stencil.test_pipeline_layout != null) c.vkDestroyPipelineLayout(stencil.surface.device, stencil.test_pipeline_layout, null);
-    if (stencil.test_dsl != null) c.vkDestroyDescriptorSetLayout(stencil.surface.device, stencil.test_dsl, null);
-    if (stencil.render_pass != null) c.vkDestroyRenderPass(stencil.surface.device, stencil.render_pass, null);
-    if (stencil.descriptor_set != null and stencil.surface.descriptor_pool != null) {
-        _ = c.vkFreeDescriptorSets(stencil.surface.device, stencil.surface.descriptor_pool, 1, @as([*]const c.VkDescriptorSet, @ptrCast(&stencil.descriptor_set)));
+    const parent = stencil.surface;
+    if (stencil.cmd_pool != null) c.vkDestroyCommandPool(parent.device, stencil.cmd_pool, null);
+    if (stencil.framebuffer != null) c.vkDestroyFramebuffer(parent.device, stencil.framebuffer, null);
+    if (stencil.write_pipeline != null) c.vkDestroyPipeline(parent.device, stencil.write_pipeline, null);
+    if (stencil.write_pipeline_layout != null) c.vkDestroyPipelineLayout(parent.device, stencil.write_pipeline_layout, null);
+    if (stencil.write_dsl != null) c.vkDestroyDescriptorSetLayout(parent.device, stencil.write_dsl, null);
+    if (stencil.test_pipeline != null) c.vkDestroyPipeline(parent.device, stencil.test_pipeline, null);
+    if (stencil.test_pipeline_layout != null) c.vkDestroyPipelineLayout(parent.device, stencil.test_pipeline_layout, null);
+    if (stencil.test_dsl != null) c.vkDestroyDescriptorSetLayout(parent.device, stencil.test_dsl, null);
+    if (stencil.render_pass != null) c.vkDestroyRenderPass(parent.device, stencil.render_pass, null);
+    if (stencil.descriptor_set != null and parent.descriptor_pool != null) {
+        _ = c.vkFreeDescriptorSets(parent.device, parent.descriptor_pool, 1, @as([*]const c.VkDescriptorSet, @ptrCast(&stencil.descriptor_set)));
     }
-    if (stencil.sampler != null) c.vkDestroySampler(stencil.surface.device, stencil.sampler, null);
-    if (stencil.color_view != null) c.vkDestroyImageView(stencil.surface.device, stencil.color_view, null);
-    if (stencil.color_image != null) c.vkDestroyImage(stencil.surface.device, stencil.color_image, null);
-    if (stencil.color_memory != null) c.vkFreeMemory(stencil.surface.device, stencil.color_memory, null);
-    if (stencil.depth_view != null) c.vkDestroyImageView(stencil.surface.device, stencil.depth_view, null);
-    if (stencil.depth_image != null) c.vkDestroyImage(stencil.surface.device, stencil.depth_image, null);
-    if (stencil.depth_memory != null) c.vkFreeMemory(stencil.surface.device, stencil.depth_memory, null);
+    if (stencil.sampler != null) c.vkDestroySampler(parent.device, stencil.sampler, null);
+    if (stencil.color_view != null) c.vkDestroyImageView(parent.device, stencil.color_view, null);
+    if (stencil.color_image != null) c.vkDestroyImage(parent.device, stencil.color_image, null);
+    if (stencil.color_memory != null) c.vkFreeMemory(parent.device, stencil.color_memory, null);
+    if (stencil.depth_view != null) c.vkDestroyImageView(parent.device, stencil.depth_view, null);
+    if (stencil.depth_image != null) c.vkDestroyImage(parent.device, stencil.depth_image, null);
+    if (stencil.depth_memory != null) c.vkFreeMemory(parent.device, stencil.depth_memory, null);
     std.heap.page_allocator.destroy(stencil);
+    parent.releaseChild();
 }
 
 pub fn beginStencilCommandBuffer(stencil: *StencilSurface) ?*VulkanCommandBuffer {
@@ -6527,6 +6588,7 @@ pub fn createStencilPipeline(surface: *VulkanSurface, desc: *const @import("lib.
 
     const vulkan_pipeline = std.heap.page_allocator.create(VulkanPipeline) catch return null;
     vulkan_pipeline.* = .{ .pipeline = pipeline, .layout = layout };
+    surface.retainChild();
     return vulkan_pipeline;
 }
 
@@ -6608,6 +6670,7 @@ pub fn createRenderbuffer(surface: *VulkanSurface, format: u32, width: u32, heig
     rb.* = .{ .image = image, .memory = memory, .image_view = view, .format = format, .width = width, .height = height };
 
     if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] createRenderbuffer: {}x{} format={d}\n", .{ width, height, format });
+    surface.retainChild();
     return rb;
 }
 
@@ -6616,6 +6679,7 @@ pub fn destroyRenderbuffer(surface: *VulkanSurface, renderbuffer: *Renderbuffer)
     if (renderbuffer.memory != null) c.vkFreeMemory(surface.device, renderbuffer.memory, null);
     if (renderbuffer.image != null) c.vkDestroyImage(surface.device, renderbuffer.image, null);
     std.heap.page_allocator.destroy(renderbuffer);
+    surface.releaseChild();
 }
 
 // --- Framebuffer ---
@@ -6671,12 +6735,14 @@ pub fn createFramebuffer(surface: *VulkanSurface, color_texture: ?*VulkanTexture
     fb.* = .{ .framebuffer = framebuffer, .color_attachment = color_texture, .depth_stencil_attachment = depth_stencil_rb, .width = width, .height = height };
 
     if (builtin.mode == .Debug) std.debug.print("[Z-GRAPHICS] createFramebuffer: {}x{} attachments={d}\n", .{ width, height, attachment_count });
+    surface.retainChild();
     return fb;
 }
 
 pub fn destroyFramebuffer(surface: *VulkanSurface, framebuffer: *Framebuffer) void {
     if (framebuffer.framebuffer != null) c.vkDestroyFramebuffer(surface.device, framebuffer.framebuffer, null);
     std.heap.page_allocator.destroy(framebuffer);
+    surface.releaseChild();
 }
 
 pub fn cmdBindFramebuffer(surface: *VulkanSurface, cmd: *VulkanCommandBuffer, framebuffer: *Framebuffer) void {

@@ -106,6 +106,10 @@ pub fn setPointerCallback(cb: ?wayland.PointerEventFn) void {
     wayland.setPointerCallback(cb);
 }
 
+pub fn setScrollCallback(cb: ?wayland.ScrollEventFn) void {
+    wayland.setScrollCallback(cb);
+}
+
 pub fn setKeyboardCallback(cb: ?wayland.KeyboardEventFn) void {
     wayland.setKeyboardCallback(cb);
 }
@@ -145,6 +149,21 @@ pub fn getWlSubcompositor(window: ?*anyopaque) ?*anyopaque {
             .Wayland => {
                 const s: *wayland.WaylandWindowState = @ptrCast(@alignCast(win.handle));
                 if (s.getWlSubcompositor()) |sub| return @ptrCast(sub);
+                return null;
+            },
+            .X11 => return null,
+        }
+    }
+    return null;
+}
+
+pub fn getWlCompositor(window: ?*anyopaque) ?*anyopaque {
+    if (window) |w| {
+        const win: *LinuxWindow = @ptrCast(@alignCast(w));
+        switch (win.type) {
+            .Wayland => {
+                const s: *wayland.WaylandWindowState = @ptrCast(@alignCast(win.handle));
+                if (s.getWlCompositor()) |comp| return @ptrCast(comp);
                 return null;
             },
             .X11 => return null,
